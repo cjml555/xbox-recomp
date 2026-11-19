@@ -83,6 +83,10 @@ tools/ninja
 rexglue-sdk/.git/
 larecomp-ref/.git/
 
+# Embedded repos (large, fetched from upstream submodules)
+rexglue-sdk/
+larecomp-ref/
+
 # Temporary
 *.tmp
 *.temp
