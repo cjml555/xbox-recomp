@@ -31,25 +31,30 @@ Este proyecto recompila el código nativo de Xbox 360 (PowerPC) a ARM64 nativo p
 ### Pasos de build
 
 ```bash
-# 1. Clonar repositorio
-git clone <repo-url>
+# 1. Clonar repositorio (con submodules)
+git clone --recurse-submodules <repo-url>
 cd xbox-360-recomps
 
-# 2. Configurar entorno Android NDK
+# 2. Si no usaste --recurse-submodules, inicializar submodules
+git submodule update --init --recursive
+
+# 3. Configurar entorno Android NDK
 export ANDROID_NDK_HOME=/ruta/a/android-ndk-r26b
 export PATH=$PATH:$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
 
-# 3. Construir SDK ReXGlue para Android
+# 4. Construir SDK ReXGlue para Android
 cd rexglue-build-android
 cmake -B build -S .. -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24
 cmake --build build -- -j$(nproc)
 
-# 4. Construir APK
+# 5. Construir APK
 cd ../../m3-android
 ./gradlew assembleDebug
 # o para release:
 ./gradlew assembleRelease
 ```
+
+> **Nota:** Los archivos generados por codegen (m2-codegen/generated/) y el XEX del juego deben estar presentes antes de construir.
 
 ## Estructura del proyecto
 
@@ -63,19 +68,36 @@ xbox-360-recomps/
 ├── ISSUES.md              # Problemas conocidos
 ├── GLOSSARY.md            # Glosario de términos
 ├── patches/               # Parches para ReXGlue
-│   └── rexglue-v0.10.0-mcla.patch
-├── rexglue-sdk/           # SDK ReXGlue (terceros)
+│   ├── rexglue-v0.10.0-mcla.patch
+│   ├── rexglue-v0.10.0-android-ui.patch
+│   └── ...
+├── rexglue-sdk/           # SDK ReXGlue (submodule)
 ├── rexglue-build-android/ # Build SDK Android (gitignored)
 ├── rexglue-build-host/    # Build SDK Host (gitignored)
 ├── m2-codegen/            # Generación de código
 │   ├── generated/         # Archivos C++ generados (gitignored)
-│   └── lareconfig.toml    # Configuración del codegen
+│   ├── lareconfig.toml    # Configuración del codegen
+│   └── debug_magic.py     # Scripts de debugging
 ├── m3-android/            # Aplicación Android
 │   ├── app/
-│   │   ├── jni/src/      # Código nativo
+│   │   ├── jni/src/      # Código nativo (C++)
 │   │   └── src/main/     # Código Java/Kotlin
 │   └── build/            # Build artifacts (gitignored)
-└── tools/                 # Herramientas de desarrollo (gitignored)
+├── tools/                 # Herramientas de desarrollo (gitignored)
+│   ├── build_host_rexglue.sh
+│   └── ...
+└── larecomp-ref/          # Referencia LARecomp (submodule)
+```
+
+### Submódulos
+
+Este repositorio incluye dos submódulos:
+- `rexglue-sdk/`: SDK de recompilación estática ReXGlue
+- `larecomp-ref/`: Referencia de LARecomp
+
+Para inicializarlos después de clonar:
+```bash
+git submodule update --init --recursive
 ```
 
 ## Cómo jugar
