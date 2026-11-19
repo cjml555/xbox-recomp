@@ -1,0 +1,12 @@
+[project]
+sdk_version = "0.10.0"
+name = "mcla"
+
+[entrypoint]
+file_path = "assets/default.xex"
+out_directory_path = "generated"
+includes = [
+  "larecomp_config.toml",
+]
+
+# Game root is inferred from XEX location (game:\ maps to assets parent)

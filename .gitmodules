@@ -1,0 +1,6 @@
+[submodule "larecomp-ref"]
+	path = larecomp-ref
+	url = https://github.com/mzzvxm/LARecomp.git
+[submodule "rexglue-sdk"]
+	path = rexglue-sdk
+	url = https://github.com/rexglue/rexglue-sdk.git

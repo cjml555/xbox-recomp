@@ -1,0 +1,88 @@
+# =============================================================================
+# Xbox 360 Recompilation Project - .gitignore
+# =============================================================================
+
+# Build artifacts
+build*/
+rexglue-build-*/
+m3-android/app/build/
+m3-android/app/jni/build/
+m3-android/build/
+m2-codegen/generated/
+m2-codegen/assets/
+build-android/
+cmake_install.cmake
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+!CMakeLists.txt
+!cmake-*/README.md
+!cmake-*/Modules/README.md
+!cmake-*/Modules/*.cmake
+*.ninja
+
+# Compiled binaries (in source directories)
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.dylib
+
+# APKs and large binaries
+*.apk
+*.bin
+
+# Extracted / intermediate data
+extracted/
+extracted_xex/
+second_layer.bin
+
+# Game data (large ISO/XEX files, proprietary - don't commit)
+game/*.iso
+game/
+360/
+recomps/
+
+# Proprietary game files (XEX assets from extracted game)
+assets/default*.xex
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# Android
+.gradle/
+local.properties
+*.keystore
+*.jks
+
+# SDK / tools
+tools/android-ndk-*/
+tools/android-ndk-*/
+tools/android-sdk*/
+tools/clang+llvm-*/
+tools/cmake-3.*/
+tools/local-libs/
+tools/ninja
+
+# Ignore git directory contents in embedded repos
+rexglue-sdk/.git/
+larecomp-ref/.git/
+
+# Temporary
+*.tmp
+*.temp
