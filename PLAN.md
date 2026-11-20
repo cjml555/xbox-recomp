@@ -3,7 +3,7 @@
 **Coordinador:** plan inicial basado en investigación (18 nov 2026)
 **Juego:** Midnight Club: Los Angeles Complete Edition (Xbox 360, title `545407F8`)
 **Enfoque:** Recompilación estática (ReXGlue) → nativo ARM64
-**Dispositivo objetivo:** Android 16, GPU Adreno (Snapdragon 8 Gen 1/2/3 o 8 Elite), RAM mínima 8 GB, ARMv8.2 (FP16)
+**Dispositivo objetivo:** Android 16, GPU Adreno 7xx/8xx (Snapdragon 888/888+ [Adreno 710], 8 Gen 1/2/3, 8 Elite), RAM mínima 8 GB, ARMv8.2 (FP16)
 
 ## Decisiones técnicas (fijadas)
 
@@ -12,7 +12,7 @@
 | SDK | ReXGlue v0.10.0 | Ya probado en MCLA (LARecomp) y en Android (Dante's Inferno Android) |
 | Base de referencia | LARecomp (mzzvxm) + mcla-recomp (holdmysocks) | Hooks, configs, fixes de motor para MCLA |
 | Arquitectura Android | Dantes-inferno-Android (vladector) | APK con NDK + Vulkan + Turnip + AAudio ya probado en Adreno |
-| GPU | Backend Vulkan + drivers Turnip (Mesa) vía AdrenoTools | Requisito para Adreno 7xx/8xx en Android 16 |
+| GPU | Backend Vulkan + drivers Turnip (Mesa) vía AdrenoTools | Requisito para Adreno 7xx/8xx en Android 16. Adreno 710 (SD 888) compatible Vulkan 1.1 + Turnip |
 | Toolchain | NDK 26.1.10909125, Clang, CMake ≥3.25, Ninja | Compatible con ReXGlue y Android 16 |
 | Build | Gradle (APK) + CMake/NDK | Entrega instalable |
 | Input | SDL3 + gamepad (gamecontrollerdb) + controles táctiles | Necesario: móvil |
@@ -26,13 +26,13 @@
 - **M1 — SDK ReXGlue ARM64:** Portar build de ReXGlue v0.10.0 a NDK (arm64-v8a) con Vulkan. ✅ Criterio: SDK buildable y `rexglue codegen` funcional.
 - **M2 — Codegen MCLA:** Extraer XEX del ISO (usuario), codegen del MCLA con config de LARecomp adaptada. ✅ Criterio: código C++ generado completo, sin funciones fallidas críticas.
 - **M3 — App Android:** Shell APK (SDL3, AAudio, input, storage/ISO, pantalla de carga). ✅ Criterio: APK instala y arranca.
-- **M4 — Boot en dispositivo:** Juego arranca hasta título. ✅ Criterio: título visible en device real Adreno/Android 16.
+- **M4 — Boot en dispositivo:** Juego arranca hasta título. ✅ Criterio: título visible en device real Adreno/Android 16. Dispositivos probados: Adreno 710 (SD 888/888+).
 - **M5 — Jugabilidad y tuning:** Free roam jugable, FPS ≥30, controles, audio, saves. ✅ Criterio: 30 min de sesión sin crash.
 - **M6 — QA + entrega:** APK release, docs, traducción, gráficos. ✅ Criterio: todo verificado por QA.
 
 ## Riesgos y mitigación
 
-1. **Térmico (crítico):** Snapdragon throttling → limitar resolución por defecto (50-75%), monitorizar, opciones de rendimiento.
+1. **Térmico (crítico):** Snapdragon throttling → limitar resolución por defecto (50-75%), monitorizar, opciones de rendimiento. **Adreno 710 (SD 888/888+):** throttling más severo que Gen 1-3; resolución inicial recommendation 40-50%, thermal throttle threshold 45°C.
 2. **eDRAM/tile rendering:** Formatos custom de Xenos → probar fallbacks; referencias: fixes de LARecomp (Patch_SingleTile).
 3. **Stutter de shaders:** Cache persistente en disco (`MESA_DISK_CACHE_SINGLE_FILE=1`) + precache.
 4. **Input:** Mapeo de controles táctiles configurable + gamepad.

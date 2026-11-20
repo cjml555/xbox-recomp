@@ -2,7 +2,7 @@
 
 Recompilación estática de **Midnight Club: Los Angeles Complete Edition** (Xbox 360) para dispositivos Android ARM64.
 
-Este proyecto recompila el código nativo de Xbox 360 (PowerPC) a ARM64 nativo para Android utilizando la tecnología de recompilación estática ReXGlue. El objetivo es ejecutar MCLA en dispositivos Android con GPU Adreno (Snapdragon 8 Gen 1/2/3 o 8 Elite) a 30+ FPS estables.
+Este proyecto recompila el código nativo de Xbox 360 (PowerPC) a ARM64 nativo para Android utilizando la tecnología de recompilación estática ReXGlue. El objetivo es ejecutar MCLA en dispositivos Android con GPU Adreno 7xx/8xx (incluyendo Adreno 710 en Snapdragon 888/888+, 8 Gen 1/2/3 y 8 Elite) a 30+ FPS estables.
 
 ## Estado actual
 
@@ -14,9 +14,9 @@ Este proyecto recompila el código nativo de Xbox 360 (PowerPC) a ARM64 nativo p
 ## Requisitos
 
 ### Hardware
-- **Procesador:** ARMv8.2 con soporte FP16 (Snapdragon 8 Gen 1/2/3 o 8 Elite)
+- **Procesador:** ARMv8.2 con soporte FP16 (Snapdragon 888/888+, 8 Gen 1/2/3 o 8 Elite)
 - **RAM:** 8 GB mínimo
-- **GPU:** Adreno 7xx/8xx con soporte Vulkan
+- **GPU:** Adreno 7xx/8xx con soporte Vulkan (Adreno 710 compatible con Vulkan 1.1 + Turnip)
 - **Almacenamiento:** 10 GB libres
 
 ### Software
@@ -102,7 +102,7 @@ git submodule update --init --recursive
 
 ## Cómo jugar
 
-1. **Instalar APK** en dispositivo compatible (Snapdragon 8 Gen 1/2/3)
+1. **Instalar APK** en dispositivo compatible (Adreno 7xx/8xx: Snapdragon 888/888+, 8 Gen 1/2/3, 8 Elite)
 2. **Abrir app** y conceder permisos de almacenamiento
 3. **Seleccionar juego** desde el menú principal
 4. **Configurar controles** (táctil o gamepad físico)

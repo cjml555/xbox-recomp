@@ -77,6 +77,28 @@ Seguimiento de issues abiertas del proyecto MCLA Recomp — Android.
 - **Mitigación:** Aceptar como limitación conocida (presente en LARecomp)
 - **Referencia:** PLAN.md §Riesgos #6
 
+### #007 — Dependencia libtinfo.so.5 faltante para Clang 18
+- **Estado:** Abierto
+- **Prioridad:** Media
+- **Responsable:** Coder
+- **Descripción:** El build del SDK ReXGlue para host Linux falla durante linking al usar Clang 18.1.8 porque busca `libtinfo.so.5` que no está presente en el sistema (Ubuntu 22.04+ usa libtinfo.so.6).
+- **Mitigación:**
+  - Opción A: Instalar `apt install libtinfo5` (compatible backwards)
+  - Opción B: Usar symlink desde libtinfo.so.6
+  - Opción C: Cambiar toolchain host a Clang 17.x
+- **Referencia:** PLAN.md §Riesgos; TIMELINE.md 19 nov 2026
+
+### #008 — XEX del juego no disponible para codegen
+- **Estado:** Abierto
+- **Prioridad:** Crítica
+- **Responsable:** Coordinador
+- **Descripción:** No se puede ejecutar `rexglue codegen` sin el archivo binario XEX extraído del disco físico de Midnight Club: Los Angeles Complete Edition. El título Xbox es `545407F8`. Sin este archivo, M2 no puede progresar.
+- **Mitigación:**
+  - Solicitar al usuario que proporcione XEX extraído legalmente de su copia física
+  - Confirmar ubicación del archivo una vez proporcionado
+  - Alternativa: buscar versiones de referencia de otros proyectos open-source si existen
+- **Referencia:** PLAN.md (requisito M2), PROGRESS.md §Bloqueos
+
 ---
 
 ## Historial de Issues Cerradas

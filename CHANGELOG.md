@@ -6,6 +6,12 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [No lanzado]
 
+### M2 — Codegen en verificación (2026-11-19)
+- ✅ Submódulos clonados e inicializados: `rexglue-sdk` (v0.10.0) y `larecomp-ref`
+- 🔄 Inicio de verificación de M2 (codegendel MCLA con configuración LARecomp adaptada)
+- ⚠️ Bloqueo crítico: archivo XEX del juego no disponible para extracción
+- ⚠️ Bloqueo medio: dependencia libtinfo.so.5 faltante para Clang 18.1.8 en build host
+
 ### M0 — Entorno (2026-11-18)
 - ✅ Toolchain instalada y verificada (NDK, CMake, Ninja, JDK, Android SDK, Turnip)
 - ✅ Criterio de aceptación cumplido: build de prueba compila correctamente
