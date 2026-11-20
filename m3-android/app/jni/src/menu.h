@@ -94,6 +94,10 @@ public:
     int GetWidth() const { return m_display_width; }
     int GetHeight() const { return m_display_height; }
 
+    // Touch coordinate mapping (converts screen coords to render-target coords)
+    void SetTouchOffset(float ox, float oy) { m_touch_offset_x = ox; m_touch_offset_y = oy; }
+    ImVec2 MapTouchEventCoords(float screen_x, float screen_y) const;
+
     // Texture loading from assets
     void LoadTextures(AAssetManager* assetManager);
 
@@ -111,6 +115,8 @@ private:
     int m_up_defer_counter = 0;      // Defer-inject the mouse UP after a frame boundary
     int m_display_width = 0;
     int m_display_height = 0;
+    float m_touch_offset_x = 0.0f;   // Letterbox X offset in render-target coords
+    float m_touch_offset_y = 0.0f;   // Letterbox Y offset in render-target coords
 
     // ImmediateDrawer owned reference — used only as the renderer target.
     rex::ui::ImmediateDrawer* m_immediate_drawer = nullptr;

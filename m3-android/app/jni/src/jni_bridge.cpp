@@ -339,8 +339,8 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
              (void*)g_presenter, (void*)g_provider);
     }
 
-    mcla::GetMenus().Initialize(g_immediate_drawer.get());
     mcla::GetMenus().SetSize(surf_w, surf_h);
+    mcla::GetMenus().Initialize(g_immediate_drawer.get());
     if (g_asset_manager) {
         mcla::GetMenus().LoadTextures(g_asset_manager);
     }
@@ -523,6 +523,16 @@ JNIEXPORT void JNICALL
 Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
                                                         jint action, jfloat x, jfloat y, jint pointerId) {
     bool is_down = (action == 0); // AMOTION_EVENT_ACTION_DOWN = 0
+    static int touch_log = 0;
+    if (touch_log < 12) { ++touch_log;
+        LOGI("nativeOnTouchEvent action=%d x=%.1f y=%.1f pid=%d", (int)action, (double)x, (double)y, (int)pointerId);
+    }
+
+    // Map surface-pixel coords into the Vulkan render-target's local space
+    // so that ImGui hit-testing aligns with what the immediate drawer presents.
+    ImVec2 mapped = mcla::GetMenus().MapTouchEventCoords(x, y);
+    float mx = mapped.x;
+    float my = mapped.y;
 
     // Send MOUSE_MOTION first so ImGui cursor is at the right position before
     // processing the button down/up events.
@@ -533,8 +543,8 @@ Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
     motion.motion.windowID  = 0;
     motion.motion.which     = (SDL_MouseID)pointerId;
     motion.motion.state     = is_down ? SDL_BUTTON_LEFT : 0;
-    motion.motion.x         = x;
-    motion.motion.y         = y;
+    motion.motion.x         = mx;
+    motion.motion.y         = my;
     motion.motion.xrel      = 0;
     motion.motion.yrel      = 0;
     SDL_PushEvent(&motion);
@@ -550,8 +560,8 @@ Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
     btn.button.down      = (bool)is_down;
     btn.button.clicks    = 1;
     btn.button.padding   = 0;
-    btn.button.x         = x;
-    btn.button.y         = y;
+    btn.button.x         = mx;
+    btn.button.y         = my;
     SDL_PushEvent(&motion);
     SDL_PushEvent(&btn);
 }

@@ -41,6 +41,19 @@
 
 namespace mcla {
 
+// The Vulkan swapchain stabilizes at 2306x950 on Adreno 710 / Turnip with the
+// current configuration. Touch coords arrive in surface-pixel space; this
+// constant lets us compute the letterbox offset when Initialize() runs.
+// For portability these can be overridden via defines or runtime tracking.
+#ifndef MCLA_RENDER_TARGET_WIDTH
+#define MCLA_RENDER_TARGET_WIDTH 2306
+#endif
+#ifndef MCLA_RENDER_TARGET_HEIGHT
+#define MCLA_RENDER_TARGET_HEIGHT 950
+#endif
+constexpr int kRenderTargetWidth  = MCLA_RENDER_TARGET_WIDTH;
+constexpr int kRenderTargetHeight = MCLA_RENDER_TARGET_HEIGHT;
+
 MenuSystem::MenuSystem() = default;
 MenuSystem::~MenuSystem() = default;
 
@@ -48,6 +61,15 @@ void MenuSystem::Initialize(rex::ui::ImmediateDrawer* drawer) {
     if (m_initialized) return;
 
     m_immediate_drawer = drawer;
+
+    // Compute letterbox offset: the Vulkan render target is centered inside the
+    // physical surface with black bars on the sides/top. Touch coords arrive in
+    // physical-surface pixels; map them into render-target space.
+    m_touch_offset_x = (m_display_width - kRenderTargetWidth) * 0.5f;
+    m_touch_offset_y = (m_display_height - kRenderTargetHeight) * 0.5f;
+    LOGI("Touch offset: (%.1f, %.1f) surface=%dx%d rt=%dx%d",
+         (double)m_touch_offset_x, (double)m_touch_offset_y,
+         m_display_width, m_display_height, kRenderTargetWidth, kRenderTargetHeight);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -111,6 +133,16 @@ void MenuSystem::Shutdown() {
 
     ImGui::DestroyContext();
     m_initialized = false;
+}
+
+ImVec2 MenuSystem::MapTouchEventCoords(float screen_x, float screen_y) const {
+    // Convert from surface-pixel coords to render-target-local coords.
+    // The Vulkan swapchain is letterboxed inside the surface; strip the offset.
+    ImVec2 out{screen_x - m_touch_offset_x, screen_y - m_touch_offset_y};
+    // Clamp into [0, rt] so touches outside the active area don't leak in.
+    out.x = std::max(0.0f, std::min(out.x, static_cast<float>(kRenderTargetWidth)));
+    out.y = std::max(0.0f, std::min(out.y, static_cast<float>(kRenderTargetHeight)));
+    return out;
 }
 
 void MenuSystem::Draw(rex::ui::UIDrawContext& ui_draw_context) {
