@@ -397,10 +397,8 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
         }
 
         if (mcla::GetMenus().GameStartRequested()) {
-            LOGI("Game start requested");
             mcla::GetMenus().ConsumeGameStartRequest();
             bool launched = LaunchGame();
-            LOGI("LaunchGame returned: %s", launched ? "true" : "false");
             if (launched) {
                 mcla::GetMenus().SetGameRunning(true);
             }
@@ -421,15 +419,7 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
 
         // Block until the presenter composites the frame onto the surface.
         if (g_presenter) {
-            static int paint_log_count = 0;
-            if (paint_log_count < 5) {
-                LOGI("Calling presenter->PaintFromUIThread(true)");
-                ++paint_log_count;
-            }
             g_presenter->PaintFromUIThread(/*block_until_presented=*/true);
-            if (paint_log_count <= 5) {
-                LOGI("PaintFromUIThread returned");
-            }
         }
     }
 
@@ -531,16 +521,39 @@ Java_com_mcla_recomp_MainActivity_nativeOnSurfaceChanged(JNIEnv* env, jobject ob
 
 JNIEXPORT void JNICALL
 Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
-                                                       jint action, jfloat x, jfloat y, jint pointerId) {
-    SDL_Event event;
+                                                        jint action, jfloat x, jfloat y, jint pointerId) {
     bool is_down = (action == 0); // AMOTION_EVENT_ACTION_DOWN = 0
-    event.type = is_down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
-    event.button.x = static_cast<int>(x);
-    event.button.y = static_cast<int>(y);
-    event.button.button = SDL_BUTTON_LEFT;
-    event.button.down = is_down ? 1 : 0;
-    event.button.timestamp = SDL_GetTicks();
-    SDL_PushEvent(&event);
+
+    // Send MOUSE_MOTION first so ImGui cursor is at the right position before
+    // processing the button down/up events.
+    SDL_Event motion;
+    std::memset(&motion, 0, sizeof(motion));
+    motion.type       = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.timestamp = (Uint64)SDL_GetTicks() * 1000000ULL;
+    motion.motion.windowID  = 0;
+    motion.motion.which     = (SDL_MouseID)pointerId;
+    motion.motion.state     = is_down ? SDL_BUTTON_LEFT : 0;
+    motion.motion.x         = x;
+    motion.motion.y         = y;
+    motion.motion.xrel      = 0;
+    motion.motion.yrel      = 0;
+    SDL_PushEvent(&motion);
+
+    // Then the button event.
+    SDL_Event btn;
+    std::memset(&btn, 0, sizeof(btn));
+    btn.type          = is_down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    btn.button.timestamp = (Uint64)SDL_GetTicks() * 1000000ULL;
+    btn.button.windowID  = 0;
+    btn.button.which     = (SDL_MouseID)pointerId;
+    btn.button.button    = (Uint8)SDL_BUTTON_LEFT;
+    btn.button.down      = (bool)is_down;
+    btn.button.clicks    = 1;
+    btn.button.padding   = 0;
+    btn.button.x         = x;
+    btn.button.y         = y;
+    SDL_PushEvent(&motion);
+    SDL_PushEvent(&btn);
 }
 
 JNIEXPORT void JNICALL
@@ -558,7 +571,7 @@ Java_com_mcla_recomp_MainActivity_nativeOnKeyEvent(JNIEnv* env, jobject obj,
         case 219: sdl_key = SDLK_LSHIFT;   break;
         case 220: sdl_key = SDLK_RSHIFT;   break;
         default:
-            LOGI("KEY: skipping unmapped keyCode=%d", keyCode);
+            // Unmapped key — ignore silently to avoid per-key log spam.
             return;
     }
     SDL_Event event;
@@ -575,8 +588,6 @@ Java_com_mcla_recomp_MainActivity_nativeOnKeyEvent(JNIEnv* env, jobject obj,
         case SDLK_RSHIFT:    event.key.scancode = SDL_SCANCODE_RSHIFT; break;
         default:             event.key.scancode = SDL_SCANCODE_UNKNOWN; break;
     }
-    LOGI("KEY: action=%d android=%d -> sdl_key=%d scancode=%d",
-         action, keyCode, (int)sdl_key, (int)event.key.scancode);
     SDL_PushEvent(&event);
 }
 

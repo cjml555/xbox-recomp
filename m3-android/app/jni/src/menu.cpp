@@ -2,6 +2,8 @@
 // Renders via ReXGlue ImmediateDrawer (Vulkan). No OpenGL ES dependency.
 
 #include <android/log.h>
+#include <thread>
+#include <functional>
 #define IM_ASSERT(_EXPR) do { if (!(_EXPR)) { __android_log_print(ANDROID_LOG_ERROR, "MCLA_Menu", "IM_ASSERT FAILED: %s at line %d", #_EXPR, __LINE__); raise(SIGABRT); } } while(0)
 
 #include "menu.h"
@@ -114,16 +116,21 @@ void MenuSystem::Shutdown() {
 void MenuSystem::Draw(rex::ui::UIDrawContext& ui_draw_context) {
     if (!m_initialized) return;
 
-    // TEMP DIAGNOSTIC
-    static int draw_log_count = 0;
-    if (draw_log_count < 5) {
-        LOGI("MenuSystem::Draw called (draw_data pending=%d)", m_game_running.load() ? 1 : 0);
-        ++draw_log_count;
-    }
+    // Align ImGui coordinate space with the actual Vulkan render target so
+    // ImGui scaling/positioning matches what the ImmediateDrawer actually presents.
+    ImGuiIO& io_ = ImGui::GetIO();
+    io_.DisplaySize.x = static_cast<float>(ui_draw_context.render_target_width());
+    io_.DisplaySize.y = static_cast<float>(ui_draw_context.render_target_height());
 
-    // Update display size each frame (must be set before NewFrame)
-    if (m_display_width > 0 && m_display_height > 0) {
-        ImGui::GetIO().DisplaySize = {(float)m_display_width, (float)m_display_height};
+    // Defer-inject the pending mouse UP across a frame boundary so that
+    // Button()'s PressedOnClickRelease logic (which fires on the release) works
+    // even when Android delivers DOWN+UP within the same SDL_PollEvent batch.
+    if (m_up_defer_counter > 0) {
+        m_up_defer_counter--;
+        if (m_up_defer_counter == 0) {
+            m_mouse_down = false;
+            io_.AddMouseButtonEvent(0, false);
+        }
     }
 
     // Start ImGui frame
@@ -221,13 +228,25 @@ void MenuSystem::HandleEvent(const SDL_Event* event) {
 
     switch (event->type) {
         case SDL_EVENT_MOUSE_MOTION:
-            io.AddMousePosEvent((float)event->motion.x, (float)event->motion.y);
+            io.AddMousePosEvent(event->motion.x, event->motion.y);
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP: {
             // Update mouse position BEFORE the button event
-            io.AddMousePosEvent((float)event->button.x, (float)event->button.y);
-            io.AddMouseButtonEvent(event->button.button, event->button.down);
+            io.AddMousePosEvent(event->button.x, event->button.y);
+            if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                m_mouse_down = true;
+                // Queue the DOWN so ImGui knows the cursor source etc.
+                // SDL uses 1-based button indices (1=left), ImGui uses 0-based (0=left)
+                const int imgui_button = event->button.button - 1;
+                io.AddMouseButtonEvent(imgui_button, true);
+            } else {
+                // Defer the UP across a frame boundary: schedule it for injection
+                // at the start of the 2nd Draw after this one. This guarantees
+                // the DOWN is observed for a full NewFrame first, so that Button()'s
+                // PressedOnClickRelease logic (which fires on the release) triggers.
+                m_up_defer_counter = 2;
+            }
             break;
         }
         case SDL_EVENT_MOUSE_WHEEL:
@@ -385,34 +404,8 @@ void MenuSystem::RenderMainMenu() {
     ImGuiIO& io = ImGui::GetIO();
     ImVec2 displaySize = io.DisplaySize;
 
-    // Full-screen backdrop
-    if (m_backdrop_texture) {
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::SetNextWindowSize(displaySize);
-        ImGuiWindowFlags backdropFlags = ImGuiWindowFlags_NoTitleBar |
-                                         ImGuiWindowFlags_NoResize |
-                                         ImGuiWindowFlags_NoMove |
-                                         ImGuiWindowFlags_NoScrollbar |
-                                         ImGuiWindowFlags_NoCollapse |
-                                         ImGuiWindowFlags_NoNav |
-                                         ImGuiWindowFlags_NoBringToFrontOnFocus |
-                                         ImGuiWindowFlags_NoBackground;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
-
-        if (ImGui::Begin("##backdrop", nullptr, backdropFlags)) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            drawList->AddImage(m_backdrop_texture, ImVec2(0, 0), displaySize,
-                               ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255));
-        }
-        ImGui::End();
-
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar(2);
-    }
-
-    // Main menu window (centered)
+    // Main menu window (centered) — backdrop drawn inside background draw list
+    // so it always appears UNDERNEATH menu content (single cmd list, same texture).
     float menuWidth = 500;
     float menuHeight = 580;
     float menuX = (displaySize.x - menuWidth) * 0.5f;
@@ -427,7 +420,14 @@ void MenuSystem::RenderMainMenu() {
                                     ImGuiWindowFlags_NoBackground |
                                     ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-    if (ImGui::Begin("MCLA Launcher", nullptr, window_flags)) {
+    bool mm_open = ImGui::Begin("MCLA Launcher", nullptr, window_flags);
+    if (mm_open) {
+        // Draw backdrop FIRST via background draw list so menu content renders on top.
+        if (m_backdrop_texture) {
+            ImDrawList* bg = ImGui::GetBackgroundDrawList();
+            bg->AddImage(m_backdrop_texture, ImVec2(0, 0), displaySize,
+                         ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255));
+        }
         ImGui::Spacing();
         ImGui::Spacing();
         ImGui::SetCursorPosX((menuWidth - 400) * 0.5f);

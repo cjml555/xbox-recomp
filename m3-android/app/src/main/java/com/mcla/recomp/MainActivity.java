@@ -148,7 +148,9 @@ public class MainActivity extends SDLActivity
         int action = event.getAction();
         int keyCode = event.getKeyCode();
         nativeOnKeyEvent(keyCode, action == android.view.KeyEvent.ACTION_DOWN ? 0 : 1);
-        return super.dispatchKeyEvent(event);
+        // Consume — do NOT call super.dispatchKeyEvent as SDLSurface's onKey
+        // would also handle it and double-push.
+        return true;
     }
 
     @Override
@@ -161,7 +163,10 @@ public class MainActivity extends SDLActivity
             float y = event.getY(i);
             nativeOnTouchEvent(action, x, y, pointerId);
         }
-        return super.dispatchTouchEvent(event);
+        // Consume the event — do NOT call super.dispatchTouchEvent() as that
+        // routes it through SDLSurface's onTouch (and SDL's onNativeTouch with
+        // normalized coords), producing a duplicate spurious (0,0) event.
+        return true;
     }
 
     // ---- Lifecycle ----------------------------------------------------------

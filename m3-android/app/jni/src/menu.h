@@ -107,6 +107,8 @@ private:
     bool m_should_exit = false;
     bool m_game_start_requested = false;
     bool m_virtual_gamepad_visible = false;
+    bool m_mouse_down = false;       // Set on DOWN, cleared on pending UP injection
+    int m_up_defer_counter = 0;      // Defer-inject the mouse UP after a frame boundary
     int m_display_width = 0;
     int m_display_height = 0;
 
