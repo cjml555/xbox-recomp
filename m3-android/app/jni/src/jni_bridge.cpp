@@ -562,7 +562,6 @@ Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
     btn.button.padding   = 0;
     btn.button.x         = mx;
     btn.button.y         = my;
-    SDL_PushEvent(&motion);
     SDL_PushEvent(&btn);
 }
 
