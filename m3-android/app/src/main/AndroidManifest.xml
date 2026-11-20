@@ -30,8 +30,9 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="landscape"
             android:launchMode="singleTask"
-            android:resizeableActivity="true"
-            android:enableVrMode="@string/vr_mode_enabled">
+            android:resizeableActivity="false"
+            android:enableVrMode="@string/vr_mode_enabled"
+            android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

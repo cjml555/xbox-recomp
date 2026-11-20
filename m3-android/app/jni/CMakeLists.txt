@@ -1,19 +1,31 @@
 cmake_minimum_required(VERSION 3.16)
 project(mcla_android LANGUAGES C CXX)
 
-# C++17 standard
-set(CMAKE_CXX_STANDARD 17)
+# C++2b (C++23) standard (required by ReXGlue SDK)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
 
 # Android configuration - must be set BEFORE toolchain
 set(ANDROID_PLATFORM 24)
 set(ANDROID_ABI arm64-v8a)
-set(ANDROID_STL c++_static)
+set(ANDROID_STL c++_shared)
+
+# NDK sysroot (set by toolchain, fallback for local builds)
+if(DEFINED ENV{ANDROID_SDK_ROOT})
+    set(_ndk_base "$ENV{ANDROID_SDK_ROOT}/ndk/26.1.10909125")
+elseif(DEFINED ENV{ANDROID_HOME})
+    set(_ndk_base "$ENV{ANDROID_HOME}/ndk/26.1.10909125")
+else()
+    set(_ndk_base "/home/jhona/tools/android-sdk/ndk/26.1.10909125")
+endif()
+set(ANDROID_NDK_SYSROOT "${_ndk_base}/toolchains/llvm/prebuilt/linux-x86_64/sysroot" CACHE PATH "Android NDK sysroot")
+link_directories("${_ndk_base}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24")
 
 # =============================================================================
 # ReXGlue SDK Setup
 # =============================================================================
-set(REXSDK_DIR "/home/jhon/xbox-recomp/rexglue-sdk" CACHE PATH "Path to ReXGlue SDK")
+set(REXSDK_DIR "/home/jhona/xbox360-recomp/rexglue-sdk" CACHE PATH "Path to ReXGlue SDK")
 
 # Include SDK headers
 include_directories(${REXSDK_DIR}/include)
@@ -24,11 +36,15 @@ include_directories(${REXSDK_DIR}/thirdparty/imgui)
 include_directories(${REXSDK_DIR}/thirdparty/imgui/backends)
 include_directories(${REXSDK_DIR}/thirdparty/sdl3/include)
 include_directories(${REXSDK_DIR}/thirdparty/inja/third_party/include)
+include_directories(${REXSDK_DIR}/thirdparty/renderdoc)
+
+# ReXGlue vendored Vulkan HPP headers — fully compatible with sdk targets
+include_directories(${REXSDK_DIR}/thirdparty/vulkan-headers/include)
 
 # =============================================================================
 # Generated Code Setup
 # =============================================================================
-set(GENERATED_DIR "/home/jhon/xbox-recomp/m2-codegen/generated")
+set(GENERATED_DIR "/home/jhona/xbox360-recomp/m2-codegen/generated")
 
 # Define generated sources
 set(GENERATED_SOURCES
@@ -47,13 +63,13 @@ message(STATUS "Found ${RECOMP_SOURCES_COUNT} generated recomp files")
 list(APPEND GENERATED_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/game_hooks.cpp)
 
 # =============================================================================
-# SDL3 Setup (using pre-built static library)
+# SDL3 Setup (using pre-built static library from Android SDK build)
 # =============================================================================
-set(SDL3_LIB "/home/jhon/xbox-recomp/rexglue-sdk/out/android-arm64/libSDL3.a")
+set(SDL3_LIB "${REXSDK_DIR}/out/android-arm64/libSDL3.a")
 set(SDL3_INCLUDE_DIR "${REXSDK_DIR}/thirdparty/sdl3/include")
 
 if(NOT EXISTS "${SDL3_LIB}")
-    message(FATAL_ERROR "SDL3 static library not found: ${SDL3_LIB}")
+    message(WARNING "SDL3 static library not found: ${SDL3_LIB} — build Android SDK first")
 endif()
 
 # =============================================================================
@@ -65,7 +81,6 @@ set(IMGUI_SOURCES
     ${REXSDK_DIR}/thirdparty/imgui/imgui_tables.cpp
     ${REXSDK_DIR}/thirdparty/imgui/imgui_widgets.cpp
     ${REXSDK_DIR}/thirdparty/imgui/backends/imgui_impl_sdl3.cpp
-    ${REXSDK_DIR}/thirdparty/imgui/backends/imgui_impl_opengl3.cpp
 )
 
 # =============================================================================
@@ -111,11 +126,10 @@ target_include_directories(mcla_main PRIVATE
     ${REXSDK_DIR}/thirdparty/imgui
     ${REXSDK_DIR}/thirdparty/imgui/backends
     ${CMAKE_CURRENT_SOURCE_DIR}
-    /home/jhon/xbox-recomp/tools/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include
 )
 
 # Set C++ standard
-target_compile_features(mcla_main PRIVATE cxx_std_17)
+target_compile_features(mcla_main PRIVATE cxx_std_23)
 
 # Add imgui sources to the main target
 target_sources(mcla_main PRIVATE ${IMGUI_SOURCES})
@@ -123,12 +137,17 @@ target_sources(mcla_main PRIVATE ${IMGUI_SOURCES})
 # =============================================================================
 # Runtime Libraries (from prebuilt SDK output)
 # =============================================================================
-set(RUNTIME_LIB_DIR "/home/jhon/xbox-recomp/rexglue-sdk/out/android-arm64")
+set(RUNTIME_LIB_DIR "/home/jhona/xbox360-recomp/rexglue-sdk/out/android-arm64")
 
 # Add prebuilt libraries as OBJECT libraries for proper linking
 add_library(librexruntime SHARED IMPORTED GLOBAL)
 set_target_properties(librexruntime PROPERTIES
     IMPORTED_LOCATION ${RUNTIME_LIB_DIR}/librexruntime.so
+)
+
+add_library(librexgpu-xenos SHARED IMPORTED GLOBAL)
+set_target_properties(librexgpu-xenos PROPERTIES
+    IMPORTED_LOCATION ${RUNTIME_LIB_DIR}/librexgpu-xenos.so
 )
 
 add_library(librexcodegen STATIC IMPORTED GLOBAL)
@@ -159,37 +178,18 @@ set_target_properties(libaes128 PROPERTIES
 # Add android library for asset extraction
 add_library(android_shared SHARED IMPORTED GLOBAL)
 set_target_properties(android_shared PROPERTIES
-    IMPORTED_LOCATION "/home/jhon/xbox-recomp/tools/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libandroid.so"
+    IMPORTED_LOCATION "${ANDROID_NDK_SYSROOT}/usr/lib/aarch64-linux-android/24/libandroid.so"
 )
 
-# Add libc++ from NDK
-add_library(c++_shared SHARED IMPORTED GLOBAL)
-set_target_properties(c++_shared PROPERTIES
-    IMPORTED_LOCATION "/home/jhon/xbox-recomp/tools/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libc++.so"
-)
-
-# libc++abi is only available as static in NDK r26b - use static version
-add_library(c++abi STATIC IMPORTED GLOBAL)
-set_target_properties(c++abi PROPERTIES
-    IMPORTED_LOCATION "/home/jhon/xbox-recomp/tools/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++abi.a"
-)
-
-# Add EGL and OpenGL ES libraries for rendering
-add_library(ESv3 SHARED IMPORTED GLOBAL)
-set_target_properties(ESv3 PROPERTIES
-    IMPORTED_LOCATION "/home/jhon/xbox-recomp/tools/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libGLESv3.so"
-)
-
-add_library(EGL SHARED IMPORTED GLOBAL)
-set_target_properties(EGL PROPERTIES
-    IMPORTED_LOCATION "/home/jhon/xbox-recomp/tools/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/libEGL.so"
-)
+# libc++_shared is handled automatically by AGP when ANDROID_STL=c++_shared
+# Do NOT manually import it here - AGP will package it into the APK
 
 # =============================================================================
 # Link Everything
 # =============================================================================
 target_link_libraries(mcla_main PRIVATE
     $<TARGET_OBJECTS:larecomp_generated>
+    librexgpu-xenos
     librexruntime
     librexcodegen
     libfmt
@@ -198,10 +198,6 @@ target_link_libraries(mcla_main PRIVATE
     libaes128
     ${SDL3_LIB}
     android_shared
-    c++_shared
-    c++abi
-    ESv3
-    EGL
     -ldl -lm -llog
 )
 
@@ -220,7 +216,7 @@ target_compile_options(mcla_main PRIVATE
 set_target_properties(mcla_main PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Android-specific target settings
-set_target_properties(mcla_main PROPERTIES ANDROID_STL c++_static)
+set_target_properties(mcla_main PROPERTIES ANDROID_STL c++_shared)
 
 # Set the sysroot for Android
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -240,7 +236,7 @@ endif()
 # Assets
 # =============================================================================
 # Copy XEX file to assets directory
-set(XEX_SOURCE "/home/jhon/xbox-recomp/m2-codegen/assets/default.xex")
+set(XEX_SOURCE "/home/jhona/xbox360-recomp/m2-codegen/assets/default.xex")
 set(XEX_DEST "${CMAKE_CURRENT_BINARY_DIR}/assets/default.xex")
 
 if(EXISTS "${XEX_SOURCE}")

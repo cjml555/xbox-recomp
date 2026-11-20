@@ -1,12 +1,25 @@
 // MCLA - Menu System
-// Dear ImGui-based menus for startup, settings, and HUD
+// Dear ImGui-based menus for startup, settings, and HUD.
+// Renders via the ReXGlue ImmediateDrawer (Vulkan) instead of OpenGL ES.
 
 #pragma once
 
 #include <SDL3/SDL.h>
 #include <optional>
 #include <string>
+#include <atomic>
+#include <memory>
 #include <imgui.h>
+
+// ReXGlue UI headers for UIDrawer derivation and texture storage.
+#include <rex/ui/ui_drawer.h>
+#include <rex/ui/immediate_drawer.h>
+namespace rex { namespace ui {
+    class UIDrawContext;
+}}
+
+// Forward declare AAssetManager for texture loading
+struct AAssetManager;
 
 namespace mcla {
 
@@ -35,27 +48,24 @@ struct MenuItem {
     bool visible = true;
 };
 
-class MenuSystem {
+class MenuSystem final : public rex::ui::UIDrawer {
 public:
     MenuSystem();
-    ~MenuSystem() = default;
-    
-    void Initialize(SDL_Window* window);
+    ~MenuSystem();
+
+    void Initialize(rex::ui::ImmediateDrawer* drawer);
     void Shutdown();
+
+    // UIDrawer interface: called by Presenter on each paint pass.
+    void Draw(rex::ui::UIDrawContext&) override;
 
     void SetState(MenuState state);
     MenuState GetState() const { return m_current_state; }
 
-    void Render();
-
-    // Frame lifecycle - call BeginFrame before Render, EndFrame after
-    void BeginFrame();
-    void EndFrame();
-
     void HandleEvent(const SDL_Event* event);
 
-    bool IsGameRunning() const { return m_game_running; }
-    void SetGameRunning(bool running) { m_game_running = running; }
+    bool IsGameRunning() const { return m_game_running.load(); }
+    void SetGameRunning(bool running) { m_game_running.store(running); }
 
     bool IsInitialized() const { return m_initialized; }
 
@@ -66,7 +76,6 @@ public:
     // FPS / HUD
     void SetFPS(float fps) { m_fps = fps; }
     float GetFPS() const { return m_fps; }
-    void RenderFPSHUD(float fps);
 
     // Exit request (from "SALIR" button)
     bool ShouldExit() const { return m_should_exit; }
@@ -85,13 +94,14 @@ public:
     int GetWidth() const { return m_display_width; }
     int GetHeight() const { return m_display_height; }
 
+    // Texture loading from assets
+    void LoadTextures(AAssetManager* assetManager);
+
 private:
     MenuState m_current_state = MenuState::MainMenu;
     MenuState m_previous_state = MenuState::MainMenu;
     bool m_initialized = false;
-    bool m_game_running = false;
-    bool m_using_sdl_window = false;  // true if initialized with SDL window, false for GLSurfaceView mode
-    SDL_Window* m_window = nullptr;
+    std::atomic<bool> m_game_running{false};
 
     float m_fps = 0.0f;
     bool m_should_exit = false;
@@ -99,6 +109,30 @@ private:
     bool m_virtual_gamepad_visible = false;
     int m_display_width = 0;
     int m_display_height = 0;
+
+    // ImmediateDrawer owned reference — used only as the renderer target.
+    rex::ui::ImmediateDrawer* m_immediate_drawer = nullptr;
+
+    // Owned textures — storing unique_ptr lets us set ImTextureID
+    // to the raw ImmediateTexture* pointer.
+    struct TextureEntry {
+        std::unique_ptr<rex::ui::ImmediateTexture> tex;
+        ImTextureID id = 0;
+    };
+    std::vector<TextureEntry> m_textures;
+
+    // Owned font atlas texture (kept alive for the lifetime of the menu).
+    std::unique_ptr<rex::ui::ImmediateTexture> m_font_texture;
+
+    // Menu texture handles (ImTextureID = raw ImmediateTexture*).
+    ImTextureID m_backdrop_texture = 0;
+    ImTextureID m_icon_jugar = 0;
+    ImTextureID m_icon_config = 0;
+    ImTextureID m_icon_controles = 0;
+    ImTextureID m_icon_desarrollo = 0;
+    ImTextureID m_icon_creditos = 0;
+    ImTextureID m_icon_actualizar = 0;
+    ImTextureID m_icon_salir = 0;
 
     void SwitchToState(MenuState state) {
         m_previous_state = m_current_state;
@@ -120,13 +154,11 @@ private:
     void RenderLANMenu();
     void RenderDevelopmentModeMenu();
     void RenderHUD(float fps);
-    
-    // Helper functions for virtual gamepad
+
     void RenderVirtualGamepad();
     void RenderGameFileSelector();
     void RenderSaveLoadMenu();
 
-    // Helper functions
     void DrawMenuItem(const std::string& label, bool* selected, const MenuItem& item);
     void DrawButton(const std::string& label, float width = 0);
 };
