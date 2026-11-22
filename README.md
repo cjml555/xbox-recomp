@@ -6,10 +6,15 @@ Este proyecto recompila el código nativo de Xbox 360 (PowerPC) a ARM64 nativo p
 
 ## Estado actual
 
+*Actualizado: 20 de noviembre de 2026 (auditoría técnica)*
+
 ✅ **SDK ReXGlue v0.10.0** - Buildado para Android ARM64 con Vulkan (M1 completado)
-✅ **APK generado** - `/m3-android/build/app.apk` (268 MB)
-✅ **Funciones generadas** - 251 archivos C++ desde M2 codegen
-✅ **Inicialización verificada** - `xstart` symbol en dirección `0x821322B8`
+✅ **Codegen M2 completo** - 122 `.cpp` + 123 `.h` (251 archivos en total) con 29,797 funciones recompiladas; 0 stubs/TODO en código generado
+✅ **Inicialización verificada** - `xstart` symbol en dirección `0x821322B8` (cadena XEX → config → init → register alineada)
+✅ **Integración M3 completa y compilando** - 120 particiones `larecomp_recomp.N.cpp` enlazadas en `libmcla_main.so` (34.6 MB); JNI exporta 16 símbolos `Java_com_mcla_recomp_MainActivity_*`
+✅ **APK debug generado** - `m3-android/app/build/outputs/apk/debug/app-debug.apk` (55 MB)
+🔄 **Pendiente (M3 ~80%)** - hooks de juego aún stub (283 funciones), updater/shader generator/Vulkan catalog con TODOs
+⏳ **Próximo hito: M4** - Boot test en hardware real (Motorola Edge 50 Fusion)
 
 ## Requisitos
 
@@ -48,10 +53,11 @@ cmake -B build -S .. -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/androi
 cmake --build build -- -j$(nproc)
 
 # 5. Construir APK
-cd ../../m3-android
+cd ../m3-android
 ./gradlew assembleDebug
 # o para release:
 ./gradlew assembleRelease
+# APK debug resultante: app/build/outputs/apk/debug/app-debug.apk (~55 MB)
 ```
 
 > **Nota:** Los archivos generados por codegen (m2-codegen/generated/) y el XEX del juego deben estar presentes antes de construir.
@@ -82,7 +88,7 @@ xbox-360-recomps/
 │   ├── app/
 │   │   ├── jni/src/      # Código nativo (C++)
 │   │   └── src/main/     # Código Java/Kotlin
-│   └── build/            # Build artifacts (gitignored)
+│   └── app/build/outputs/apk/debug/  # APK debug (app-debug.apk, gitignored)
 ├── tools/                 # Herramientas de desarrollo (gitignored)
 │   ├── build_host_rexglue.sh
 │   └── ...
@@ -119,6 +125,13 @@ git submodule update --init --recursive
 - **API:** OpenGL ES 3.0 (GLSurfaceView)
 - **Resolución:** 50-75% por defecto (evitar thermal throttling)
 - **FPS objetivo:** 30+ FPS estables
+
+### Salida de audio
+
+- **Cadena:** AAudio (nativo, API 26+) → SDL3 (Xenia) → Null (silencioso, mantiene timing)
+- **Formato:** 48 kHz, 256 samples/frame (5.33 ms), 6-ch BE float → stereo float downmix
+- **Self-test:** `AAUDIO_SELFTEST` al arranque verifica compatibilidad AAudio (ver [docs/AUDIO.md](docs/AUDIO.md))
+- **Quirks:** Motorola Edge 50 Fusion rechaza `LOW_LATENCY`; se usa modo `NONE` por defecto
 
 ## Licencia
 

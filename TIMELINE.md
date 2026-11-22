@@ -77,6 +77,45 @@ Registro cronológico de hitos y decisiones del proyecto MCLA Recomp — Android
 
 ---
 
+#### 19 de Noviembre — Codegen MCLA completado (M2) e integración Android (M3)
+
+**Hito:** M2 — Codegen ~95% 🔄 · M3 — Integración ~80% 🔄
+
+**Eventos:**
+- XEX del juego recibido del usuario: `/home/jhona/MCLA/default.xex` (9,252,864 bytes ≈ 9.2 MB, título `545407F8`) → **ISSUE #008 desbloqueada**
+- `rexglue codegen` ejecutado: 251 archivos generados (122 `.cpp` + 123 `.h` + cmake/config), **29,797 funciones** recompiladas en 120 particiones
+- Verificación estructural M2 (M2_VERIFICATION_REPORT.md): entry point `xstart = 0x821322B8` alineado en toda la cadena; 0 stubs/TODO en código generado
+- Integración del código generado en `m3-android`: CMake GLOB de `larecomp_recomp.*.cpp` → `libmcla_main.so`; JNI bridge con 16 símbolos `Java_com_mcla_recomp_MainActivity_*`
+- APK debug compilado: `m3-android/app/build/outputs/apk/debug/app-debug.apk` (55 MB)
+
+**Notas:** Quedan pendientes en M2 la validación de funciones fallidas críticas y los hacks de LARecomp/mcla-recomp.
+
+---
+
+#### 20 de Noviembre — Auditoría técnica completa
+
+**Hito:** Auditoría de estado real M0–M3 ✅
+
+**Hallazgos verificados:**
+- M0–M2 confirmados: codegen completo y compilable; los 2 blockers de M2 (nombre de PCH y estándar C++) ya resueltos
+- **ISSUE #008 (XEX): RESUELTA** — archivo disponible y codegen ejecutado sobre él
+- **ISSUE #007 (libtinfo.so.5): ya no bloquea** — el binario host `rexglue` v0.10.0 ejecuta sin la librería (`ldd` limpio); el sistema solo tiene `libtinfo.so.6`
+- M3 compilando con APK debug de 55 MB y `libmcla_main.so` de 34.6 MB (stripped)
+- Documentación encontrada DESACTUALIZADA (ruta/tamaño de APK erróneos, conteo de archivos impreciso, M2/M3 marcados como pendientes) → corregida en PROGRESS.md, README.md, CHANGELOG.md, TIMELINE.md e ISSUES.md
+
+**Gaps funcionales detectados (nuevas issues #009–#012):**
+1. `game_hooks.cpp`: 283 funciones hook stub (crítico para M4) — #009
+2. Rutas absolutas `/home/jhona/...` en CMake (portabilidad) — #010
+3. Manifest exige GLES 3.0/AEP `required=true` en app Vulkan-only — #011
+4. Inconsistencia C++20 (`CMAKE_CXX_STANDARD`) vs C++23 (`cxx_std_23`) — #012
+5. `updater.cpp` sin parseo JSON; TODOs en `shader_generator.cpp` y `vulkan_catalog.cpp`
+
+**Dispositivo de pruebas:** Motorola Edge 50 Fusion conectado y listo para M4.
+
+**Notas:** Próximo hito M4 — boot test en hardware real.
+
+---
+
 ## Próximos Hitos
 
 ### M1 — SDK ReXGlue ARM64
@@ -86,15 +125,17 @@ Registro cronológico de hitos y decisiones del proyecto MCLA Recomp — Android
 
 ### M2 — Codegen MCLA
 - **Criterio de aceptación:** Código C++ generado completo, sin funciones fallidas críticas
-- **Estado:** Pendiente
+- **Estado:** 🔄 ~95% (codegen completo y verificado 19–20 nov 2026; falta validación de funciones fallidas y hacks LARecomp)
+- **Detalles:** 251 archivos (122 `.cpp` + 123 `.h` + cmake/config), 29,797 funciones, entry point `xstart = 0x821322B8` alineado, 0 stubs/TODO en código generado.
 
 ### M3 — App Android
 - **Criterio de aceptación:** APK instala y arranca
-- **Estado:** Pendiente
+- **Estado:** 🔄 ~80% (integración completa y compilando, 20 nov 2026)
+- **Detalles:** `app-debug.apk` (55 MB) en `m3-android/app/build/outputs/apk/debug/`; `libmcla_main.so` 34.6 MB con 120 particiones recompiladas; 16 símbolos JNI exportados. Gaps: hooks stub, updater, shaders, Vulkan catalog (issues #009–#012).
 
 ### M4 — Boot en dispositivo
 - **Criterio de aceptación:** Título visible en device real Adreno/Android 16
-- **Estado:** Pendiente
+- **Estado:** ⏳ Próximo hito — Motorola Edge 50 Fusion conectado para boot test
 
 ### M5 — Jugabilidad y tuning
 - **Criterio de aceptación:** 30 min de sesión sin crash, FPS ≥30

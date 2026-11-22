@@ -47,6 +47,17 @@ recomps/
 
 # Proprietary game files (XEX assets from extracted game)
 assets/default*.xex
+# Datos del juego MCLA (ISO/XEX/RPF/BIK) — nunca versionar
+*.iso
+*.xex
+*.rpf
+*.bik
+nxeart
+root_directory_padding.pad
+
+# Local build caches and tool dependencies (never commit)
+m3-android/app/.cxx/
+**/node_modules/
 
 # IDE / editor
 .idea/

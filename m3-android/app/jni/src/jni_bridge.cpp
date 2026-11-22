@@ -15,6 +15,12 @@
 #include <rex/system/thread_state.h>
 #include <rex/system/xthread.h>
 #include <rex/system/gpu_plugin.h>
+#include <rex/kernel/crt/heap.h>
+#include <rex/kernel/init.h>
+#include <rex/input/input_system.h>
+#include <rex/input/device_assignment.h>
+#include <rex/filesystem/vfs.h>
+#include <rex/cvar.h>
 #include <rex/logging/api.h>
 #include <spdlog/sinks/android_sink.h>
 
@@ -49,6 +55,9 @@
 #include <android/log.h>
 #include <android/asset_manager_jni.h>
 #include <signal.h>
+
+#include "crash_trace.h"
+#include "audio_output.h"
 
 #define LOG_TAG "MCLA_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -99,6 +108,9 @@ static std::thread* g_game_thread = nullptr;
 static rex::Runtime* g_runtime = nullptr;
 static float g_fps = 0.0f;
 static int g_frame_count = 0;
+static int g_target_fps = 120;  // Edge 50 Fusion runs 120 Hz; 0 = uncapped
+// Per-frame time tracking for the MangoHUD-style frametime graph.
+static std::chrono::high_resolution_clock::time_point g_last_frame_time;
 static std::chrono::high_resolution_clock::time_point g_last_fps_time;
 
 static JNIEnv* g_jni_env = nullptr;
@@ -200,13 +212,29 @@ bool LaunchGame() {
         return false;
     }
     LOGI("XEX image loaded");
+    // Initialize the guest CRT heap (mirrors ReXApp::Setup flow, rex_app.cpp).
+    // Without this, rexcrt_RtlAllocateHeap has no backing heap and the guest
+    // hangs/crashes at boot (black screen).
+    if (PPCImageConfig.rexcrt_heap) {
+        uint32_t heap_mb = REXCVAR_GET(rexcrt_heap_size_mb);
+        LOGI("Initializing rexcrt heap (%u MB)...", heap_mb);
+        if (!rex::kernel::crt::InitHeap(heap_mb, runtime->memory())) {
+            LOGE("Failed to initialize rexcrt heap");
+            return false;
+        }
+        LOGI("rexcrt heap initialized (%u MB)", heap_mb);
+    }
+    LOGI("Preparing module launch...");
     g_module_thread = runtime->PrepareModuleLaunch();
     if (!g_module_thread) {
         LOGE("PrepareModuleLaunch failed");
         return false;
     }
+    // Install guest crash tracer (host PC -> guest function mapping) before
+    // the guest starts faulting, so access violations can be attributed.
+    mcla::InstallCrashTrace(runtime);
     g_module_thread->Resume();
-    LOGI("Module launched - guest main thread running");
+    LOGI("Module launch initiated - guest main thread running");
     return true;
 }
 
@@ -242,10 +270,37 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
     // Load GPU plugin (Vulkan)
     rex::RuntimeConfig config;
     config.tool_mode = false;
+    // HLE kernel modules + XAM apps (mirrors ReXApp::SetupPresentation).
+    // Without this, xboxkrnl.exe/xam.xex are not registered and guest
+    // XexLoadImage/XexGetProcedureAddress calls fail at boot.
+    config.kernel_init = rex::kernel::InitializeKernel;
+    // Audio with silent fallback (LARecomp audio_output.h / holdmysocks
+    // audio_fallback.cpp): without a driver the game aborts its audio engine
+    // init and later dereferences the engine it never created.
+    config.audio_factory = &mcla::audio::CreateAudioSystem;
+    // Every controller is player one (LARecomp larecomp_app.h): the SDK
+    // default assigns each pad its own user, and user 1+ has no profile, so
+    // the game reports nobody signed in and never saves.
+    config.input_factory = [](bool tool_mode) -> std::unique_ptr<rex::system::IInputSystem> {
+        auto input = rex::input::CreateDefaultInputSystem(tool_mode);
+        if (input) {
+            input->SetDeviceAssignment(std::make_unique<rex::input::SharedAssignment>());
+            // Android has no rex window, so the SDL input driver never
+            // initializes SDL_INIT_GAMEPAD and the guest never sees the on-screen
+            // gamepad. Bridge the mcla virtual/physical gamepad state directly.
+            mcla::RegisterMclaInputDriver(
+                static_cast<rex::input::InputSystem*>(input.get()));
+        }
+        return input;
+    };
     auto exe_folder = rex::filesystem::GetExecutableFolder();
     LOGI("Executable folder: %s", exe_folder.string().c_str());
     LOGI("Native library dir: %s", g_native_library_dir.c_str());
 
+    // MCLA ships with "invalid" texture fetch constants on some draw paths; the
+    // GPU cache rejects them by default and spams a validation warning per draw
+    // (50k+ logcat lines/min). LARecomp enables this flag by default — mirror it.
+    rex::cvar::SetFlagByName("gpu_allow_invalid_fetch_constants", "true");
     config.graphics = nullptr;
     if (!g_native_library_dir.empty()) {
         std::string plugin_path = g_native_library_dir + "/librexgpu-xenos.so";
@@ -305,6 +360,40 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
         return;
     }
     LOGI("Runtime initialized (xstart at 0x%08X)", kXstartAddress);
+
+    // Self-test: verify the AAudio output driver works on this device before the
+    // guest code requests it during gameplay. Opens and closes a stream once.
+    // This is diagnostic-only and never blocks boot on failure.
+    //
+    // Device quirks encountered on Motorola Edge 50 Fusion (Android 16):
+    //   - AAUDIO_DIRECTION_OUTPUT is 0, not 1 (1 = INPUT = createRecord → permission denied)
+    //   - AAUDIO_FORMAT_PCM_FLOAT = 2, not 1 (1 = PCM_I16)
+    //   - AAUDIO_PERFORMANCE_MODE_LOW_LATENCY is rejected (illegal performanceMode),
+    //     so we leave the default NONE.
+    if (g_runtime->function_dispatcher()) {
+        auto* mem = g_runtime->memory();
+        auto sem = rex::thread::Semaphore::Create(0, 1);
+        if (mem && sem) {
+            mcla::audio::AAudioDriver probe(mem, sem.get());
+            if (probe.Initialize()) {
+                LOGI("AAUDIO_SELFTEST OK: stream opened at 48 kHz stereo float");
+                probe.Shutdown();
+            } else {
+                LOGW("AAUDIO_SELFTEST FAILED: AAudio unavailable — will fall back to SDL/null");
+            }
+        } else {
+            LOGW("AAUDIO_SELFTEST SKIPPED: no memory or semaphore");
+        }
+    }
+
+    // Register t: drive — the game probes it for loose city/art/collision
+    // data (.loc files). Without the device the probes fail with "no such
+    // device" instead of "not found" (LARecomp larecomp_app.h:1200,
+    // holdmysocks mcla_app.cpp OnPostSetup).
+    if (auto* fs = g_runtime->file_system()) {
+        fs->RegisterSymbolicLink("t:", "\\Device\\Harddisk0\\Partition1");
+        LOGI("Registered t: symbolic link");
+    }
 
     // Wire presenter + immediate drawer + window + menus (mirrors ReXApp flow).
     auto* gs = g_runtime->graphics_system();
@@ -406,13 +495,35 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
 
         mcla::GetGamepadManager().Update();
 
-        // FPS counter
+        // Keep menu display size in sync with the latest surface dimensions
+        // (the initial snapshot taken before Setup may predate a resize).
+        {
+            int sw = g_surface_width.load();
+            int sh = g_surface_height.load();
+            if (sw > 0 && sh > 0 &&
+                (sw != mcla::GetMenus().GetWidth() || sh != mcla::GetMenus().GetHeight())) {
+                mcla::GetMenus().SetSize(sw, sh);
+            }
+        }
+
+        // FPS counter + periodic progress log
         auto now = std::chrono::high_resolution_clock::now();
+        {
+            auto dt = now - g_last_frame_time;
+            float dt_ms = std::chrono::duration<float, std::milli>(dt).count();
+            g_last_frame_time = now;
+            mcla::GetMenus().AddFrametimeSample(dt_ms);
+        }
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - g_last_fps_time);
         if (elapsed.count() >= 1000) {
             g_fps = static_cast<float>(g_frame_count * 1000) / elapsed.count();
             g_last_fps_time = now;
+            int frames_this_sec = g_frame_count;
             g_frame_count = 0;
+            static int fps_log = 0;
+            if (fps_log < 20) { ++fps_log;
+                LOGI("FPS: %.1f, frames=%d, game_running=%d", g_fps, frames_this_sec, g_running ? 1 : 0);
+            }
         }
         g_frame_count++;
         mcla::GetMenus().SetFPS(g_fps);
@@ -420,6 +531,19 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
         // Block until the presenter composites the frame onto the surface.
         if (g_presenter) {
             g_presenter->PaintFromUIThread(/*block_until_presented=*/true);
+        }
+
+        // Frame-rate cap — PaintFromUIThread may return early if Vulkan swapchain
+        // isn't waiting on vsync, so enforce a ceiling here.  Target 60 FPS to keep
+        // CPU/GPU sane on any device while still feeling smooth.
+        if (g_target_fps > 0) {
+            uint64_t kMinFrameNs = UINT64_C(1'000'000'000) / g_target_fps;
+            auto frame_end = std::chrono::high_resolution_clock::now();
+            auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(frame_end - now).count();
+            int64_t remaining_ns = static_cast<int64_t>(kMinFrameNs) - static_cast<int64_t>(elapsed_ns);
+            if (remaining_ns > 0) {
+                std::this_thread::sleep_for(std::chrono::nanoseconds(remaining_ns));
+            }
         }
     }
 
@@ -514,6 +638,11 @@ Java_com_mcla_recomp_MainActivity_nativeOnSurfaceChanged(JNIEnv* env, jobject ob
     LOGI("nativeOnSurfaceChanged: %dx%d", width, height);
     g_surface_width.store(width);
     g_surface_height.store(height);
+    // Keep the menu's display size + touch mapping in sync with the surface.
+    mcla::GetMenus().SetSize(width, height);
+    // Also sync the virtual gamepad hit-test coordinate space so stick/button
+    // regions match what's drawn on screen.
+    mcla::GetGamepadManager().SetDisplaySize(width, height);
     if (g_presenter) {
         g_presenter->RequestUIPaintFromUIThread();
     }
@@ -527,6 +656,9 @@ Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
     if (touch_log < 12) { ++touch_log;
         LOGI("nativeOnTouchEvent action=%d x=%.1f y=%.1f pid=%d", (int)action, (double)x, (double)y, (int)pointerId);
     }
+
+    // Feed touch to virtual gamepad (surface-pixel coords)
+    mcla::GetGamepadManager().FeedTouch((int)pointerId, is_down, x, y);
 
     // Map surface-pixel coords into the Vulkan render-target's local space
     // so that ImGui hit-testing aligns with what the immediate drawer presents.

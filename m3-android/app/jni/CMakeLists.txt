@@ -61,6 +61,7 @@ message(STATUS "Found ${RECOMP_SOURCES_COUNT} generated recomp files")
 
 # Add game hooks source (must be added before library creation)
 list(APPEND GENERATED_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/game_hooks.cpp)
+list(APPEND GENERATED_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/timer_precision.cpp)
 
 # =============================================================================
 # SDL3 Setup (using pre-built static library from Android SDK build)
@@ -114,6 +115,7 @@ add_library(mcla_main SHARED
     src/vulkan_catalog.cpp
     src/shader_generator.cpp
     src/crash_logger.cpp
+    src/crash_trace.cpp
     src/updater.cpp
     src/jni_bridge.cpp
 )

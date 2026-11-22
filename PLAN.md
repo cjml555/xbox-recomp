@@ -30,6 +30,35 @@
 - **M5 — Jugabilidad y tuning:** Free roam jugable, FPS ≥30, controles, audio, saves. ✅ Criterio: 30 min de sesión sin crash.
 - **M6 — QA + entrega:** APK release, docs, traducción, gráficos. ✅ Criterio: todo verificado por QA.
 
+## Roadmap de Features
+
+Spec completo en `FEATURES.md` (alcance final del usuario, 20 nov 2026). Orden de prioridad explícito: **renderizadores → jugable → optimización → texturas**. Los hitos M0–M6 se mantienen; las fases se apoyan en ellos.
+
+- **F1 — Renderizadores → jugable (prioridad máxima):** implementar los renderizadores ANTES de cualquier mejora; el juego debe cargar, renderizar y ser jugable (entrar al juego). Apoyado en M2–M5.
+  - Selector de archivos del juego (cargar y entrar al juego).
+  - Selector de renderizador: basado en Xenia + nativo/Vulkan.
+  - Selector de API gráfica.
+  - Generador de shaders integrado (multi-dispositivo).
+  - Soporte de gamepads físicos (Xbox, PlayStation, similares).
+  - Gamepad virtual táctil (visible/funcional sin gamepad físico).
+  - Modo de desarrollo (depuración del render y boot).
+- **F2 — Optimización (solo después de que renderice):** optimización del código y de la carga de archivos; resto de menús y features del app. Apoyado en M5–M6.
+  - Optimización de código y de carga de archivos.
+  - Medidor FPS tipo MangoHud.
+  - Loader de drivers Vulkan públicos + catálogo de drivers públicos y custom.
+  - Configuración de calidad con perfiles: bajo, medio, alto, ultra, custom (configs del juego).
+  - Menú de partida personalizada (custom save).
+  - Updater / verificador de actualizaciones.
+  - Selector de idiomas.
+  - Menú de cheats.
+  - Menú de mods.
+  - Modo LAN con gamertag personalizada (de ser posible — condicional).
+  - Créditos.
+  - Botón para enviar logs de crash al dev.
+- **F3 — Investigación de texturas (solo al terminar F2):** investigar cómo mejorar las texturas del juego y aplicar las mejoras viables.
+
+**Restricción legal (todas las fases):** los datos del juego NO se suben ni publican; SÍ se permiten scripts para parchar o descomprimir los archivos del juego.
+
 ## Riesgos y mitigación
 
 1. **Térmico (crítico):** Snapdragon throttling → limitar resolución por defecto (50-75%), monitorizar, opciones de rendimiento. **Adreno 710 (SD 888/888+):** throttling más severo que Gen 1-3; resolución inicial recommendation 40-50%, thermal throttle threshold 45°C.

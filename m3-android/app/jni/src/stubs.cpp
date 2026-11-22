@@ -30,52 +30,30 @@
 // Cache/Memory System Functions
 // ============================================
 
-DEFINE_STUB_EMPTY(mc_FlushDataCache)
 
 // ============================================
 // Graphics/Direct3D Functions
 // ============================================
 
-DEFINE_STUB_EMPTY(D3DDevice_FlushConstantBank)
-DEFINE_STUB_EMPTY(D3DDevice_KickCommandBuffer)
-DEFINE_STUB_EMPTY(D3DDevice_WriteRegisterBlock)
 
 // Graphics resource functions  
-DEFINE_STUB_EMPTY(D3DTexture_UnlockRect)
-DEFINE_STUB_EMPTY(D3DTexture_LockRectBody)
-DEFINE_STUB_EMPTY(D3DBaseTexture_GetLevelCount)
-DEFINE_STUB_EMPTY(D3DDevice_CreateTexture)
-DEFINE_STUB_EMPTY(D3DDevice_GraphicsInterruptCallback)
-DEFINE_STUB_EMPTY(D3DDevice_RingBufferAlloc)
-DEFINE_STUB_EMPTY(D3DDevice_BlockOnFence)
-DEFINE_STUB_EMPTY(D3DDevice_BlockOnFenceGlobal)
-DEFINE_STUB_EMPTY(D3DResource_BlockUntilNotBusy)
-DEFINE_STUB_EMPTY(D3DDevice_AcquireCommandBufferBlock)
-DEFINE_STUB_EMPTY(D3DDevice_SubmitCommandBuffer)
-DEFINE_STUB_EMPTY(D3DDevice_BlockUntilIdle)
-DEFINE_STUB_EMPTY(D3DDevice_HandleVblank)
-DEFINE_STUB_EMPTY(D3DDevice_Swap)
-DEFINE_STUB_EMPTY(D3DDevice_BeginTiling)
-DEFINE_STUB_EMPTY(D3DDevice_EndTiling)
-DEFINE_STUB_EMPTY(D3DDevice_BeginVertices)
-DEFINE_STUB_EMPTY(D3DDevice_EndVertices)
-DEFINE_STUB_EMPTY(D3DDevice_DrawVertices)
-DEFINE_STUB_EMPTY(D3DDevice_DrawIndexedVertices)
-DEFINE_STUB_EMPTY(D3DDevice_Resolve)
-DEFINE_STUB_EMPTY(D3DResource_GetType)
+// D3DDevice_CreateTexture: has real generated body in larecomp_recomp.77.cpp:14157
+// Unmask to allocate guest texture objects (populates [0x828393AC]/[0x828393B0])
+// DEFINE_STUB_EMPTY(D3DDevice_CreateTexture)
 
-DEFINE_STUB_EMPTY(grcTextureFactoryXenon_CreateTexture)
-DEFINE_STUB_EMPTY(grcTextureFactoryXenon_DestroyTexture)
-DEFINE_STUB_EMPTY(grcDevice_BeginTiledRendering)
-DEFINE_STUB_EMPTY(grcDevice_EndTiledRendering)
-DEFINE_STUB_EMPTY(grcDevice_EndFrame)
-DEFINE_STUB_EMPTY(grcTextureXenon_Copy)
-DEFINE_STUB_EMPTY(grcTextureXenon_LockRect)
-DEFINE_STUB_EMPTY(grcTextureXenon_UnlockRect)
-DEFINE_STUB_EMPTY(grcTextureXenon_Init)
-DEFINE_STUB_EMPTY(grcTextureXenon_ResourceCtor)
-DEFINE_STUB_EMPTY(grcTextureXenon_dtor)
-DEFINE_STUB_EMPTY(grcTextureXenon_ctor)
+// Unmasked: real generated bodies exist in m2-codegen/generated/
+// DEFINE_STUB_EMPTY(grcTextureFactoryXenon_CreateTexture)
+// DEFINE_STUB_EMPTY(grcTextureFactoryXenon_DestroyTexture)
+// DEFINE_STUB_EMPTY(grcDevice_BeginTiledRendering)
+// DEFINE_STUB_EMPTY(grcDevice_EndTiledRendering)
+// DEFINE_STUB_EMPTY(grcDevice_EndFrame)
+// DEFINE_STUB_EMPTY(grcTextureXenon_Copy)
+// DEFINE_STUB_EMPTY(grcTextureXenon_LockRect)
+// DEFINE_STUB_EMPTY(grcTextureXenon_UnlockRect)
+// DEFINE_STUB_EMPTY(grcTextureXenon_Init)
+// DEFINE_STUB_EMPTY(grcTextureXenon_ResourceCtor)
+// DEFINE_STUB_EMPTY(grcTextureXenon_dtor)
+// DEFINE_STUB_EMPTY(grcTextureXenon_ctor)
 
 // ============================================
 // Windows Kernel Functions
@@ -233,41 +211,3 @@ DEFINE_STUB_EMPTY(HalReturnToFirmware)
 // ============================================
 // Floating Point Register Save/Restore
 // ============================================
-
-DEFINE_STUB_EMPTY(__savefpr_14)
-DEFINE_STUB_EMPTY(__savefpr_15)
-DEFINE_STUB_EMPTY(__savefpr_16)
-DEFINE_STUB_EMPTY(__savefpr_17)
-DEFINE_STUB_EMPTY(__savefpr_18)
-DEFINE_STUB_EMPTY(__savefpr_19)
-DEFINE_STUB_EMPTY(__savefpr_20)
-DEFINE_STUB_EMPTY(__savefpr_21)
-DEFINE_STUB_EMPTY(__savefpr_22)
-DEFINE_STUB_EMPTY(__savefpr_23)
-DEFINE_STUB_EMPTY(__savefpr_24)
-DEFINE_STUB_EMPTY(__savefpr_25)
-DEFINE_STUB_EMPTY(__savefpr_26)
-DEFINE_STUB_EMPTY(__savefpr_27)
-DEFINE_STUB_EMPTY(__savefpr_28)
-DEFINE_STUB_EMPTY(__savefpr_29)
-DEFINE_STUB_EMPTY(__savefpr_30)
-DEFINE_STUB_EMPTY(__savefpr_31)
-
-DEFINE_STUB_EMPTY(__restfpr_14)
-DEFINE_STUB_EMPTY(__restfpr_15)
-DEFINE_STUB_EMPTY(__restfpr_16)
-DEFINE_STUB_EMPTY(__restfpr_17)
-DEFINE_STUB_EMPTY(__restfpr_18)
-DEFINE_STUB_EMPTY(__restfpr_19)
-DEFINE_STUB_EMPTY(__restfpr_20)
-DEFINE_STUB_EMPTY(__restfpr_21)
-DEFINE_STUB_EMPTY(__restfpr_22)
-DEFINE_STUB_EMPTY(__restfpr_23)
-DEFINE_STUB_EMPTY(__restfpr_24)
-DEFINE_STUB_EMPTY(__restfpr_25)
-DEFINE_STUB_EMPTY(__restfpr_26)
-DEFINE_STUB_EMPTY(__restfpr_27)
-DEFINE_STUB_EMPTY(__restfpr_28)
-DEFINE_STUB_EMPTY(__restfpr_29)
-DEFINE_STUB_EMPTY(__restfpr_30)
-DEFINE_STUB_EMPTY(__restfpr_31)

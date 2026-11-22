@@ -12,6 +12,10 @@ Seguimiento de issues abiertas del proyecto MCLA Recomp — Android.
 | #004 | Mapeo de controles táctiles | Abierto | Media | Coder |
 | #005 | Funciones MMIO no mapeadas | Abierto | Media | Coder |
 | #006 | Dithered alpha en sombras (artístico) | Abierto | Baja | Coder |
+| #009 | game_hooks.cpp: 283 funciones hook stub (bloquea M4) | Abierto | Crítica | Coder |
+| #010 | Rutas absolutas en CMake (portabilidad) | Abierto | Alta | Coder |
+| #011 | Manifest exige GLES 3.0/AEP required en app Vulkan-only | Abierto | Media | Coder |
+| #012 | Inconsistencia C++20 vs C++23 en CMake de la app | Abierto | Media | Coder |
 
 ---
 
@@ -78,26 +82,61 @@ Seguimiento de issues abiertas del proyecto MCLA Recomp — Android.
 - **Referencia:** PLAN.md §Riesgos #6
 
 ### #007 — Dependencia libtinfo.so.5 faltante para Clang 18
+- **Estado:** Cerrado (2026-11-20 — verificado: ya no bloquea)
+- **Prioridad:** Media
+- **Responsable:** Coder
+- **Descripción:** El build del SDK ReXGlue para host Linux fallaba durante linking al usar Clang 18.1.8 porque busca `libtinfo.so.5` que no está presente en el sistema (solo `libtinfo.so.6`).
+- **Resolución (verificada en auditoría 2026-11-20):** El binario host `rexglue-sdk/out/linux-amd64/rexglue` (v0.10.0) ejecuta correctamente sin `libtinfo.so.5` (`ldd` sin dependencias faltantes) y el codegen de M2 se completó con él. La dependencia ya no bloquea ningún hito activo.
+- **Nota:** `libtinfo.so.5` sigue ausente en el sistema; un rebuild host desde cero con Clang 18 podría volver a requerir el workaround (symlink desde `libtinfo.so.6`, paquete compat, o Clang 17).
+- **Referencia:** PLAN.md §Riesgos; TIMELINE.md 19–20 nov 2026; BUILD_LOG.md
+
+### #008 — XEX del juego no disponible para codegen
+- **Estado:** Cerrado (2026-11-20 — RESUELTO)
+- **Prioridad:** Crítica
+- **Responsable:** Coordinador
+- **Descripción:** No se podía ejecutar `rexglue codegen` sin el archivo binario XEX extraído del disco físico de Midnight Club: Los Angeles Complete Edition (título Xbox `545407F8`).
+- **Resolución:** El usuario proporcionó el XEX en `/home/jhona/MCLA/default.xex` (9,252,864 bytes ≈ 9.2 MB; copia de trabajo en `m2-codegen/assets/default.xex`). Codegen ejecutado exitosamente: 251 archivos, 29,797 funciones, entry point `xstart = 0x821322B8` verificado.
+- **Referencia:** PLAN.md (requisito M2), PROGRESS.md §Bloqueos Resueltos, M2_VERIFICATION_REPORT.md
+
+### #009 — game_hooks.cpp: funciones hook stub (crítico para M4)
+- **Estado:** Abierto
+- **Prioridad:** Crítica
+- **Responsable:** Coder
+- **Descripción:** De las funciones hook de `m3-android/app/jni/src/game_hooks.cpp`, 283 son stubs que solo registran un log ("Hook_X called - stub") sin implementar la lógica del juego (verificado por conteo directo en auditoría 2026-11-20; el informe de auditoría citaba ~452, cifra no reproducida en el fuente actual). Sin hooks reales (save/Load, rendering, input del motor) el boot de M4 no puede llegar a título visible. Además `updater.cpp` tiene el parseo JSON sin implementar y hay TODOs en `shader_generator.cpp` (generación de binario de shader) y `vulkan_catalog.cpp` (instalación/desinstalación de drivers).
+- **Mitigación:**
+  - Portar los hooks equivalentes de LARecomp/mcla-recomp (`larecomp-ref`) priorizando los críticos para boot
+  - Implementar updater (parseo JSON) y shader generator real
+  - Completar instalación de drivers Turnip en vulkan_catalog
+- **Referencia:** Auditoría 2026-11-20 (CHANGELOG.md, TIMELINE.md); PROGRESS.md §M3 gaps
+
+### #010 — Rutas absolutas en CMake (portabilidad)
+- **Estado:** Abierto
+- **Prioridad:** Alta
+- **Responsable:** Coder
+- **Descripción:** `m3-android/app/jni/CMakeLists.txt` contiene rutas absolutas hardcodeadas a `/home/jhona/...` (NDK base, `REXSDK_DIR`, `GENERATED_DIR`, `RUNTIME_LIB_DIR`, `XEX_SOURCE`). El build no es reproducible en otra máquina ni en CI.
+- **Mitigación:**
+  - Sustituir por variables de entorno / cache variables con defaults relativos (`$ENV{ANDROID_NDK_HOME}`, `${CMAKE_CURRENT_SOURCE_DIR}/../../..`)
+  - Documentar las variables requeridas en README.md
+- **Referencia:** Auditoría 2026-11-20; m3-android/app/jni/CMakeLists.txt líneas 20, 28, 47, 140, 239
+
+### #011 — Manifest exige GLES 3.0/AEP required en app Vulkan-only
 - **Estado:** Abierto
 - **Prioridad:** Media
 - **Responsable:** Coder
-- **Descripción:** El build del SDK ReXGlue para host Linux falla durante linking al usar Clang 18.1.8 porque busca `libtinfo.so.5` que no está presente en el sistema (Ubuntu 22.04+ usa libtinfo.so.6).
+- **Descripción:** `AndroidManifest.xml` declara `glEsVersion="0x00030000" required="true"` y `android.hardware.opengles.aep required="true"`, mientras que `android.hardware.vulkan.version` figura `required="false"`. La app renderiza por Vulkan (+ Turnip); exigir GLES 3.0/AEP como requisito filtra dispositivos compatibles en Play Store y contradice el backend real.
 - **Mitigación:**
-  - Opción A: Instalar `apt install libtinfo5` (compatible backwards)
-  - Opción B: Usar symlink desde libtinfo.so.6
-  - Opción C: Cambiar toolchain host a Clang 17.x
-- **Referencia:** PLAN.md §Riesgos; TIMELINE.md 19 nov 2026
+  - Marcar GLES/AEP como `required="false"` (o eliminarlos si no se usan)
+  - Declarar Vulkan como requisito real según el backend soportado
+- **Referencia:** Auditoría 2026-11-20; m3-android/app/src/main/AndroidManifest.xml
 
-### #008 — XEX del juego no disponible para codegen
+### #012 — Inconsistencia C++20 vs C++23 en CMake de la app
 - **Estado:** Abierto
-- **Prioridad:** Crítica
-- **Responsable:** Coordinador
-- **Descripción:** No se puede ejecutar `rexglue codegen` sin el archivo binario XEX extraído del disco físico de Midnight Club: Los Angeles Complete Edition. El título Xbox es `545407F8`. Sin este archivo, M2 no puede progresar.
+- **Prioridad:** Media
+- **Responsable:** Coder
+- **Descripción:** `m3-android/app/jni/CMakeLists.txt` fija `CMAKE_CXX_STANDARD 20` (línea 5) pero exige `target_compile_features(mcla_main PRIVATE cxx_std_23)` (línea 132). El código generado por ReXGlue requiere C++23; la mezcla puede producir flags contradictorios según el orden de evaluación y confundir el estándar real del build.
 - **Mitigación:**
-  - Solicitar al usuario que proporcione XEX extraído legalmente de su copia física
-  - Confirmar ubicación del archivo una vez proporcionado
-  - Alternativa: buscar versiones de referencia de otros proyectos open-source si existen
-- **Referencia:** PLAN.md (requisito M2), PROGRESS.md §Bloqueos
+  - Unificar en C++23 (`set(CMAKE_CXX_STANDARD 23)`) y eliminar la duplicidad con `cxx_std_23`, o documentar por qué se mantiene ambas
+- **Referencia:** Auditoría 2026-11-20; M2_VERIFICATION_REPORT.md (C++23 requerido por el SDK)
 
 ---
 
@@ -105,7 +144,8 @@ Seguimiento de issues abiertas del proyecto MCLA Recomp — Android.
 
 | ID | Título | Estado | Fecha de cierre |
 |----|--------|--------|-----------------|
-| — | — | — | — |
+| #007 | Dependencia libtinfo.so.5 faltante para Clang 18 | Cerrado (ya no bloquea; binario host funcional sin la librería) | 2026-11-20 |
+| #008 | XEX del juego no disponible para codegen | Cerrado (XEX proporcionado; codegen completado) | 2026-11-20 |
 
 ---
 

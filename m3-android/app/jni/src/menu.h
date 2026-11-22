@@ -76,7 +76,7 @@ public:
     // FPS / HUD
     void SetFPS(float fps) { m_fps = fps; }
     float GetFPS() const { return m_fps; }
-
+    void AddFrametimeSample(float ms) { m_ft[m_ft_idx] = ms; m_ft_idx = (m_ft_idx + 1) & (kFtBufSize - 1); }
     // Exit request (from "SALIR" button)
     bool ShouldExit() const { return m_should_exit; }
     void SetShouldExit(bool exit) { m_should_exit = exit; }
@@ -90,7 +90,7 @@ public:
     bool IsVirtualGamepadVisible() const { return m_virtual_gamepad_visible; }
 
     // Display size (updated by Android surface callbacks)
-    void SetSize(int width, int height) { m_display_width = width; m_display_height = height; }
+    void SetSize(int width, int height);
     int GetWidth() const { return m_display_width; }
     int GetHeight() const { return m_display_height; }
 
@@ -108,6 +108,10 @@ private:
     std::atomic<bool> m_game_running{false};
 
     float m_fps = 0.0f;
+    // Rolling frametime ring buffer for the HUD graph (MangoHUD-style).
+    static constexpr int kFtBufSize = 64;
+    float m_ft[kFtBufSize] = {0};
+    int   m_ft_idx = 0;
     bool m_should_exit = false;
     bool m_game_start_requested = false;
     bool m_virtual_gamepad_visible = false;
@@ -115,8 +119,14 @@ private:
     int m_up_defer_counter = 0;      // Defer-inject the mouse UP after a frame boundary
     int m_display_width = 0;
     int m_display_height = 0;
-    float m_touch_offset_x = 0.0f;   // Letterbox X offset in render-target coords
-    float m_touch_offset_y = 0.0f;   // Letterbox Y offset in render-target coords
+    // Actual UI draw-target size reported by the presenter's UIDrawContext
+    // (the Vulkan swapchain extent). Captured in Draw(); drives touch mapping.
+    int m_rt_width = 0;
+    int m_rt_height = 0;
+    float m_touch_scale = 1.0f;      // Surface -> render-target scale
+    float m_touch_offset_x = 0.0f;   // Letterbox X offset in surface pixels
+    float m_touch_offset_y = 0.0f;   // Letterbox Y offset in surface pixels
+    void UpdateTouchMapping();
 
     // ImmediateDrawer owned reference — used only as the renderer target.
     rex::ui::ImmediateDrawer* m_immediate_drawer = nullptr;

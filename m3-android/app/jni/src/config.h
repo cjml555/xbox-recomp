@@ -90,7 +90,7 @@ struct Config {
 
     // Development
     bool dev_mode = false;
-    bool show_fps = false;
+    bool show_fps = true;
     bool show_debug_info = false;
 
     // Paths

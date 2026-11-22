@@ -1,13 +1,13 @@
 # Progreso del Proyecto MCLA Recomp Android
 
-Estado actual al 19 de noviembre de 2026 - Verificación de M2 (codegen)
+Estado actual al 20 de noviembre de 2026 - Auditoría técnica completa (M0–M3 verificados)
 
 ## Resumen Ejecutivo
 
-**Fase actual:** M2 — Codegen MCLA  
-**Progreso general:** ~30% completado (M0 y M1 finalizados, M2 en curso)  
-**Bloqueantes activos:** 2  
-**Próximo objetivo:** Completar codegen y generar código C++ desde XEX
+**Fase actual:** M3 — App Android (integración completa) → M4 Boot en dispositivo  
+**Progreso general:** ~55% completado (M0 y M1 finalizados, M2 ~95%, M3 ~80%)  
+**Bloqueantes activos:** 0 críticos (XEX y libtinfo resueltos; quedan gaps funcionales de M3)  
+**Próximo objetivo:** M4 — Boot test en hardware real (Motorola Edge 50 Fusion conectado)
 
 ---
 
@@ -17,9 +17,9 @@ Estado actual al 19 de noviembre de 2026 - Verificación de M2 (codegen)
 |------|--------|--------|-------------|--------------|-----------|---|-------|
 | M0 | Entorno | ✅ Completado | Coder | 2026-11-18 | 2026-11-18 | 100% | Toolchain verificada |
 | M1 | SDK ReXGlue ARM64 | ✅ Completado | Coder | 2026-11-18 | 2026-11-18 | 100% | librexruntime.so generado |
-| **M2** | **Codegen MCLA** | **🔄 En progreso** | **Coder** | **2026-11-19** | **—** | **~30%** | **Submódulos listos, esperando XEX** |
-| M3 | App Android | ⏳ Pendiente | Coder | — | — | 0% | Shell APK listo (m3-android/) |
-| M4 | Boot en dispositivo | ⏳ Pendiente | Coder | — | — | 0% | Requiere M3 funcional |
+| M2 | Codegen MCLA | 🔄 En progreso | Coder | 2026-11-19 | — | ~95% | Codegen completo (29,797 funciones); falta validación de funciones fallidas y hacks LARecomp |
+| **M3** | **App Android** | **🔄 En progreso** | **Coder** | **2026-11-19** | **—** | **~80%** | **Integración completa y compilando; APK debug 55 MB; gaps funcionales pendientes** |
+| M4 | Boot en dispositivo | ⏳ Próximo | Coder | — | — | 0% | Motorola Edge 50 Fusion conectado |
 | M5 | Jugabilidad y tuning | ⏳ Pendiente | Coder | — | — | 0% | Meta: 30 min sin crash |
 | M6 | QA + entrega | ⏳ Pendiente | QA | — | — | 0% | Entrega final |
 
@@ -61,90 +61,93 @@ Estado actual al 19 de noviembre de 2026 - Verificación de M2 (codegen)
 
 ---
 
-### 🔄 M2 — Codegen MCLA (EN PROGRESO - 30%)
+### 🔄 M2 — Codegen MCLA (EN PROGRESO - ~95%)
 **Inicio:** 19 de noviembre de 2026  
-**Estado parcial:** Estructura lista, generando código requiere XEX
+**Estado:** Codegen completo y verificado por auditoría (2026-11-20); pendiente validación final
 
 **Completado:**
 - [x] Submódulo `rexglue-sdk` clonado (v0.10.0)
 - [x] Submódulo `larecomp-ref` clonado (referencia completa)
-- [x] Configuración COBOL (`larecomp_config.toml`) preparada
+- [x] Configuración (`larecomp_config.toml`) preparada
 - [x] Manifest MCLA (`mcla_manifest.toml`) leído
 - [x] Scripts de debug validados (`debug_magic.py`, `gdb_break.gdb`)
+- [x] XEX disponible: `/home/jhona/MCLA/default.xex` (9,252,864 bytes ≈ 9.2 MB; copia en `m2-codegen/assets/default.xex`) → ISSUE #008 RESUELTO
+- [x] `rexglue codegen` ejecutado: **251 archivos generados** (122 `.cpp` + 123 `.h` + 2 `.cmake` + 4 stamps/config)
+- [x] **29,797 funciones** recompiladas (`DEFINE_REX_FUNC` / `REX_FUNC_PROLOGUE` 1:1 en 120 particiones)
+- [x] Entry point verificado y alineado en toda la cadena: XEX header → config → init → register → `DEFINE_REX_FUNC(xstart)` en `0x821322B8`
+- [x] 0 stubs / TODOs / funciones incompletas en código generado
+- [x] Blocker de nombre de PCH resuelto
+- [x] Blocker de estándar C++ resuelto (código generado compila con C++23 del SDK)
 
 **Pendiente:**
-- [ ] Extraer XEX del ISO del juego (requiere intervención del usuario)
-- [ ] Ejecutar `rexglue codegen` con XEX
-- [ ] Generar ~250 funciones C++ desde PPC → ARM64
-- [ ] Verificar funciones fallidas críticas
+- [ ] Verificar funciones fallidas críticas (revisión funcional, no solo estructural)
 - [ ] Aplicar hacks de LARecomp/mcla-recomp al código generado
 
-**Bloqueantes:**
-1. 🔴 **CRÍTICO:** No se cuenta con archivo XEX del juego (Midnight Club: Los Angeles)
-   - El XEX debe ser extraído de un disco físico comprado por el usuario
-   - Título Xbox 360: `545407F8`
-   - Ver ISSUE #008
-
-2. 🟡 **MEDIO:** Dependencia `libtinfo.so.5` faltante para Clang 18
-   - Afecta build del SDK en host Linux
-   - Workaround disponible o instalar paquete `libtinfo-compat`
-   - Ver ISSUE #007
+**Bloqueantes:** ninguno activo (ver §Bloqueos Resueltos)
 
 ---
 
-### ⏳ M3 — App Android (PENDIENTE)
-**Preparado:** Shell APK en `m3-android/`
+### 🔄 M3 — App Android (EN PROGRESO - ~80%)
+**Inicio:** 19 de noviembre de 2026  
+**Estado:** Integración COMPLETA y compilando; APK debug generado
 
-Componentes listos para implementar cuando M2 esté completo:
-- Mainactivity.java
-- JNI bridge (jni_bridge.cpp)
-- Game hooks (game_hooks.cpp)
-- Shader generator (shader_generator.cpp)
-- Crash logger (crash_logger.cpp)
-- Config manager (config.cpp)
-- Input/gamepad manager
-- Storage/ISO access (SAF + zero-copy fd)
-- Audio AAudio nativo
+**Completado:**
+- [x] MainActivity.java + JNI bridge (`jni_bridge.cpp`)
+- [x] JNI exporta 16 símbolos `Java_com_mcla_recomp_MainActivity_*` (verificado con `nm`)
+- [x] CMake GLOB de los 120 `larecomp_recomp.N.cpp` integrado en `libmcla_main.so`
+- [x] `libmcla_main.so` compilado: 34.6 MB (stripped, arm64-v8a)
+- [x] **APK debug generado:** `m3-android/app/build/outputs/apk/debug/app-debug.apk` (55 MB)
+- [x] Crash logger (`crash_logger.cpp`), config manager (`config.cpp`), menú (`menu.cpp`)
+- [x] Gamepad manager (`gamepad_manager.cpp`)
+- [x] Estructura de shader generator, vulkan catalog, updater y game hooks presente
+
+**Gaps funcionales pendientes (ver ISSUES #009–#012):**
+- [ ] `game_hooks.cpp`: 283 funciones hook son stubs (solo loguean "called - stub") — crítico para M4 (ISSUE #009)
+- [ ] `updater.cpp`: parseo JSON sin implementar (stub)
+- [ ] `shader_generator.cpp`: TODO — generación/escritura real de binario de shader
+- [ ] `vulkan_catalog.cpp`: TODOs — instalación/desinstalación de drivers Turnip
+- [ ] Rutas absolutas `/home/jhona/...` en CMake (portabilidad, ISSUE #010)
+- [ ] Manifest exige GLES 3.0/AEP `required=true` en app Vulkan-only (ISSUE #011)
+- [ ] Inconsistencia C++20 (`CMAKE_CXX_STANDARD`) vs C++23 (`cxx_std_23`) en CMake (ISSUE #012)
+- [ ] Storage/ISO access (SAF + zero-copy fd) y audio AAudio: validación funcional en device
 
 ---
 
 ### ⏳ M4-M6 (PENDIENTES)
-Dependientes de hitos previos. Ver PLAN.md para criterios de aceptación detallados.
+M4 es el próximo hito: boot test en hardware real. **Motorola Edge 50 Fusion conectado** y disponible para pruebas. Dependientes de cerrar gaps funcionales de M3. Ver PLAN.md para criterios de aceptación detallados.
 
 ---
 
-## Bloqueos Activos
+## Bloqueos Resueltos
 
-### 🔴 Bloqueo Crítico: XEX no disponible
-- **Impacto:** Imposible continuar M2 sin fuente de juego
-- **Solución requerida:** Usuario debe proporcionar XEX extraído de disco físico
-- **Título Xbox:** `545407F8` (Midnight Club: Los Angeles Complete Edition)
-- **Referencia:** ISSUE #008
-- **Fecha identificación:** 2026-11-19
+### ✅ Resuelto: XEX no disponible (ISSUE #008)
+- **Estado:** RESUELTO (verificado 2026-11-20)
+- **Resolución:** XEX proporcionado por el usuario en `/home/jhona/MCLA/default.xex` (9.2 MB, título `545407F8`); codegen ejecutado exitosamente sobre él
+- **Fecha identificación:** 2026-11-19 · **Fecha resolución:** 2026-11-19/20
 
-### 🟡 Bloqueo Medio: libtinfo.so.5 faltante
-- **Impacto:** Builds del SDK en host pueden fallar al linker con Clang 18
-- **Workaround:** Instalar `libtinfo-compat` o usar Clang 17 para host
-- **Referencia:** ISSUE #007
+### ✅ Resuelto: libtinfo.so.5 faltante (ISSUE #007)
+- **Estado:** RESUELTO / ya no bloquea (verificado 2026-11-20)
+- **Verificación:** El binario host `rexglue-sdk/out/linux-amd64/rexglue` (v0.10.0) ejecuta correctamente sin `libtinfo.so.5` (`ldd` sin dependencias faltantes); el codegen se completó con él
+- **Nota:** El sistema solo tiene `libtinfo.so.6`; un rebuild host desde cero con Clang 18 podría volver a requerir el workaround (symlink o `libtinfo5`)
 - **Fecha identificación:** 2026-11-19
 
 ---
 
 ## Próximos Pasos
 
-### Inmediatos ( blockers desbloqueados )
-1. [ ] Obtener XEX del juego de usuario → desbloquear M2
-2. [ ] Resolver libtinfo.so.5 (instalar paquetes o workaround)
-3. [ ] Ejecutar codegen completo sobre XEX
-4. [ ] Validar integración de código generado con app Android
+### Inmediatos (M3 → M4)
+1. [ ] Implementar hooks críticos de `game_hooks.cpp` (283 stubs) — desbloquear boot funcional
+2. [ ] Corregir manifest (GLES3 required en app Vulkan-only) y rutas absolutas de CMake
+3. [ ] Unificar estándar C++ (C++23) en CMake de la app
+4. [ ] Instalar `app-debug.apk` en Motorola Edge 50 Fusion y ejecutar boot test (M4)
 
-### A corto plazo (post-M2)
-5. [ ] Integrar funciones generadas en m3-android
-6. [ ] Construir APK debug
-7. [ ] Probar boot en emulador/dispositivo
-8. [ ] Debug初期de errores de runtime
+### A corto plazo (M4)
+5. [ ] Debug de errores de runtime en device (crash logger + logcat)
+6. [ ] Implementar updater (parseo JSON) y shader generator real
+7. [ ] Instalación de drivers Turnip vía vulkan_catalog
+8. [ ] Validar funciones fallidas críticas del codegen y aplicar hacks LARecomp
 
-### Medio plazo (M3→M5)
+### Medio plazo (M4→M5)
 9. [ ] Tuning de rendimiento (fps target: 30+)
 10. [ ] Implementar controles táctiles completos
 11. [ ] AAudio integration testing
@@ -157,8 +160,8 @@ Dependientes de hitos previos. Ver PLAN.md para criterios de aceptación detalla
 ```
 M0 ████████████████████████████████ 100% ✅
 M1 ████████████████████████████████ 100% ✅
-M2 ██████████░░░░░░░░░░░░░░░░░░░░░░  30% 🔄
-M3 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   0% ⏳
+M2 ██████████████████████████████░░  95% 🔄
+M3 ██████████████████████████░░░░░░  80% 🔄
 M4 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   0% ⏳
 M5 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   0% ⏳
 M6 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   0% ⏳
@@ -177,4 +180,4 @@ M6 ░░░░░░░░░░░░░░░░░░░░░░░░░�
 
 ---
 
-*Última actualización: 19 de noviembre de 2026*
+*Última actualización: 20 de noviembre de 2026 (auditoría técnica)*

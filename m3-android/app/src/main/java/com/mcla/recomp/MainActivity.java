@@ -84,6 +84,25 @@ public class MainActivity extends SDLActivity
         return new MCLASurface(context, this);
     }
 
+    /**
+     * SDL opens its window in "windowed" mode and sends
+     * COMMAND_CHANGE_WINDOW_STYLE=0 (both from SDLActivity.onCreate's
+     * setWindowStyle(false) and from native window creation). That handler sets
+     * FLAG_FORCE_NOT_FULLSCREEN and clears the immersive flags, which insets
+     * the surface by the nav bar and the display cutout (e.g. 2306x950 instead
+     * of 2400x1080 on the Edge 50 Fusion). Force every window-style change to
+     * fullscreen so SDL's own handler applies the immersive flags and
+     * LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS, letting the Vulkan surface span the
+     * full physical screen.
+     */
+    @Override
+    protected boolean sendCommand(int command, Object data) {
+        if (command == COMMAND_CHANGE_WINDOW_STYLE) {
+            data = 1; // always fullscreen
+        }
+        return super.sendCommand(command, data);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // super.onCreate() sets up SDL: loadLibraries(), createSDLSurface(),
@@ -91,6 +110,16 @@ public class MainActivity extends SDLActivity
         super.onCreate(savedInstanceState);
 
         Log.i(TAG, "onCreate");
+
+        // Render into the display cutout (punch-hole camera) area so the Vulkan
+        // surface spans the full physical screen instead of leaving black bars.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            android.view.WindowManager.LayoutParams attrs = getWindow().getAttributes();
+            attrs.layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attrs);
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             final android.view.WindowInsetsController controller = getWindow().getInsetsController();
             if (controller != null) {
