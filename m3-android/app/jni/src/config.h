@@ -37,6 +37,15 @@ enum class Language : uint8_t {
     Chinese = 5
 };
 
+// Corner the MangoHUD-style overlay is anchored to. Offsets in Config are
+// measured inward from the two edges meeting at that corner.
+enum class HudCorner : uint8_t {
+    TopLeft = 0,
+    TopRight = 1,
+    BottomLeft = 2,
+    BottomRight = 3
+};
+
 struct Config {
     // Game settings
     std::string game_data_path;
@@ -92,6 +101,13 @@ struct Config {
     bool dev_mode = false;
     bool show_fps = true;
     bool show_debug_info = false;
+
+    // MangoHUD-style overlay: anchor corner, uniform size and edge insets (px).
+    // Offsets are added inward from the anchor's edges; clamp keeps it on screen.
+    HudCorner hud_corner = HudCorner::TopRight;
+    float hud_scale = 1.0f;
+    float hud_offset_x = 0.0f;
+    float hud_offset_y = 0.0f;
 
     // Paths
     std::string config_path;

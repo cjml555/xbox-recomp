@@ -171,6 +171,7 @@ private:
     void RenderShaderGeneratorMenu();
     void RenderLANMenu();
     void RenderDevelopmentModeMenu();
+    void RenderHudControls();
     void RenderHUD(float fps);
 
     void RenderVirtualGamepad();

@@ -199,10 +199,8 @@ void MenuSystem::Draw(rex::ui::UIDrawContext& ui_draw_context) {
     // Start ImGui frame
     ImGui::NewFrame();
 
-    // Render current menu or HUD
-    if (GetConfig().show_fps && m_fps > 0) {
-        RenderHUD(m_fps);
-    }
+    // Render current menu or HUD. The HUD is drawn last (on top of menus and
+    // the virtual pad) so position/size changes are visible live while editing.
     if (m_game_running.load()) {
         RenderVirtualGamepad();
     } else {
@@ -223,6 +221,10 @@ void MenuSystem::Draw(rex::ui::UIDrawContext& ui_draw_context) {
             case MenuState::DevelopmentMode: RenderDevelopmentModeMenu(); break;
             default: break;
         }
+    }
+
+    if (GetConfig().show_fps && m_fps > 0) {
+        RenderHUD(m_fps);
     }
 
     // End frame — this builds ImGui draw data
@@ -799,6 +801,8 @@ void MenuSystem::RenderGraphicsMenu() {
         ImGui::SliderFloat("FOV Scale", &GetConfig().fov_scale, 0.5f, 2.0f);
         ImGui::SliderFloat("Gamma", &GetConfig().gamma, 0.5f, 2.0f);
 
+        RenderHudControls();
+
         ImGui::Spacing();
         if (ImGui::Button("Selector de Renderizador")) {
             SwitchToState(MenuState::RendererSelector);
@@ -1047,11 +1051,35 @@ void MenuSystem::RenderLANMenu() {
     }
 }
 
+void MenuSystem::RenderHudControls() {
+    Config& cfg = GetConfig();
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.35f, 0.85f, 1.0f, 1.0f), "HUD MangoHUD");
+    ImGui::Checkbox("Mostrar FPS", &cfg.show_fps);
+
+    int corner = static_cast<int>(cfg.hud_corner);
+    const char* corner_labels[] = {"Sup. izquierda", "Sup. derecha", "Inf. izquierda", "Inf. derecha"};
+    if (ImGui::Combo("Ubicación HUD", &corner, corner_labels, 4)) {
+        cfg.hud_corner = static_cast<HudCorner>(corner);
+    }
+    ImGui::SliderFloat("Tamaño HUD", &cfg.hud_scale, 0.6f, 2.5f, "%.2fx");
+    ImGui::SliderFloat("Margen X", &cfg.hud_offset_x, 0.0f, 400.0f, "%.0f px");
+    ImGui::SliderFloat("Margen Y", &cfg.hud_offset_y, 0.0f, 400.0f, "%.0f px");
+    if (ImGui::Button("Restablecer HUD")) {
+        cfg.hud_corner = HudCorner::TopRight;
+        cfg.hud_scale = 1.0f;
+        cfg.hud_offset_x = 0.0f;
+        cfg.hud_offset_y = 0.0f;
+    }
+    ImGui::TextColored(ImVec4(0.62f, 0.62f, 0.68f, 1.0f),
+                       "Cambios en vivo. Usa Guardar Configuración para conservarlos.");
+}
+
 void MenuSystem::RenderDevelopmentModeMenu() {
     if (ImGui::Begin("Modo Desarrollo")) {
         ImGui::Checkbox("Modo Dev", &GetConfig().dev_mode);
-        ImGui::Checkbox("Mostrar FPS", &GetConfig().show_fps);
         ImGui::Checkbox("Debug Info", &GetConfig().show_debug_info);
+        RenderHudControls();
 
         ImGui::Spacing();
         if (ImGui::Button("Ver Function Registry")) {
@@ -1097,127 +1125,122 @@ static std::pair<long, long> ReadMemInfo() {
 }
 
 void MenuSystem::RenderHUD(float fps) {
-    if (fps <= 0) return;
+    if (fps <= 0.0f) return;
 
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
-    const float pad = 12.0f;
-    const float scale = 2.5f;
-
-    // MangoHUD-style: big number in top-right, green/yellow/red by threshold
-    ImVec4 col_fps = fps >= 60.0f ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f) :
-                     fps >= 30.0f ? ImVec4(1.0f, 0.9f, 0.1f, 1.0f) :
-                                    ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
-
-    char fps_buf[16], ms_buf[16];
-    snprintf(fps_buf, sizeof(fps_buf), "%3.0f", fps);
-    snprintf(ms_buf, sizeof(ms_buf), "%.1fms", 1000.0f / fps);
-
-    // Font sizing
-    float fsz = 28.0f * scale;
     ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
-    ImVec2 fps_sz = font
-        ? font->CalcTextSizeA(fsz, 9999, -1.0f, fps_buf)
-        : ImVec2(strlen(fps_buf) * fsz * 0.6f, fsz);
-    ImVec2 ms_sz  = font
-        ? font->CalcTextSizeA(fsz * 0.65f, 9999, -1.0f, ms_buf)
-        : ImVec2(strlen(ms_buf) * fsz * 0.65f * 0.6f, fsz * 0.55f);
+    const Config& cfg = GetConfig();
 
-    // Panel dimensions
-    float panel_w = ImMax(fps_sz.x, ms_sz.x) + pad * 2.0f;
-    const float graph_h = 70.0f;       // Height of the frametime graph
-    const float mem_h   = 16.0f * scale;
-    float panel_h = fps_sz.y + ms_sz.y + graph_h + mem_h + pad * 3.0f + 8.0f;
-    ImVec2 panel_pos = ImVec2(io.DisplaySize.x - panel_w - pad, pad);
+    // Every dimension derives from one scale so the overlay keeps its
+    // proportions no matter where it is anchored or how large it is drawn.
+    const float s      = ImClamp(cfg.hud_scale, 0.5f, 3.0f);
+    const float margin = 12.0f * s;
+    const float pad    = 9.0f * s;
+    const float gap    = 4.0f * s;
+    const float fsz    = 26.0f * s;   // big FPS number
+    const float small  = 12.0f * s;   // frametime / RAM
+    const float tiny   = 11.0f * s;   // "FPS" unit
+    const float graph_h = 44.0f * s;
 
-    // ── Dark rounded background ────────────────────────────────────────
-    ImU32 bg = IM_COL32(12, 12, 18, 220);
-    dl->AddRectFilled(panel_pos, ImVec2(panel_pos.x + panel_w, panel_pos.y + panel_h),
-                      bg, 8.0f, ImDrawFlags_RoundCornersAll);
+    auto text_size = [&](float size, const char* t) -> ImVec2 {
+        return font ? font->CalcTextSizeA(size, 9999.0f, -1.0f, t)
+                    : ImVec2(strlen(t) * size * 0.6f, size);
+    };
+    auto draw_text = [&](float size, const ImVec2& at, ImU32 col, const char* t) {
+        dl->AddText(font, size, at, col, t);
+    };
 
-    // ── FPS / ms text ─────────────────────────────────────────────────
-    ImU32 fps_col = IM_COL32((ImU32)(col_fps.x * 255.0f), (ImU32)(col_fps.y * 255.0f),
-                              (ImU32)(col_fps.z * 255.0f), 255);
-    dl->AddText(font, fsz, ImVec2(panel_pos.x + pad, panel_pos.y + pad),
-                fps_col, fps_buf);
-    ImU32 ms_col = IM_COL32(170, 170, 180, 200);
-    dl->AddText(font, fsz * 0.65f,
-                ImVec2(panel_pos.x + pad, panel_pos.y + pad + fps_sz.y + 6.0f),
-                ms_col, ms_buf);
-
-    // ── Rolling frametime graph ────────────────────────────────────────
-    int n_samples = kFtBufSize;
-    float min_ft = 16.0f, max_ft = 50.0f; // ms thresholds
-    bool any_sample = false;
-    for (int i = 0; i < kFtBufSize; ++i) {
-        if (m_ft[i] > 0.1f) { any_sample = true; break; }
-    }
-    if (any_sample && n_samples > 0 && font) {
-        float gx = panel_pos.x + pad;
-        float gy = panel_pos.y + pad + fps_sz.y + ms_sz.y + 14.0f;
-        float gw = panel_w - pad * 2.0f;
-        float gh = graph_h;
-
-        // Label
-        dl->AddText(font, fsz * 0.45f, ImVec2(gx, gy - fsz * 0.35f),
-                    IM_COL32(160, 160, 175, 180), "frametime");
-
-        // Grid lines at target boundaries
-        auto ft_to_y = [&](float t) {
-            float clamped = ImClamp(t, min_ft, max_ft);
-            return gy + gh - (clamped - min_ft) / (max_ft - min_ft) * gh;
-        };
-        // 16.67ms target line (60fps)
-        float target_y = ft_to_y(16.67f);
-        dl->AddLine(ImVec2(gx, target_y), ImVec2(gx + gw, target_y),
-                    IM_COL32(0, 200, 0, 90), 1.0f);
-        // 33.33ms = 30fps warning
-        float warn_y = ft_to_y(33.33f);
-        dl->AddLine(ImVec2(gx, warn_y), ImVec2(gx + gw, warn_y),
-                    IM_COL32(200, 140, 0, 80), 1.0f);
-
-        // Bars: oldest left, newest right
-        int bar_w = ImMax(1, (int)(gw / n_samples));
-        int count = 0;
-        for (int i = 0; i < n_samples; ++i) {
-            int idx = (m_ft_idx + i) & (kFtBufSize - 1);
-            if (m_ft[idx] <= 0.1f) continue;
-            ++count;
-            float val = m_ft[idx];
-            float bx = gx + i * bar_w;
-            float by = ft_to_y(val);
-            ImU32 bcol = val <= 16.67f ? IM_COL32(0, 210, 50, 220)
-                       : val <= 33.33f ? IM_COL32(220, 190, 0, 210)
-                                       : IM_COL32(220, 40, 40, 220);
-            dl->AddRectFilled(ImVec2(bx + 0.5f, by), ImVec2(bx + (float)bar_w - 0.5f, gy + gh),
-                              bcol, 1.0f);
-        }
-        // Border around graph area
-        dl->AddRect(ImVec2(gx, gy), ImVec2(gx + gw, gy + gh),
-                    IM_COL32(60, 60, 70, 180), 2.0f);
-
-        // Current frametime label (right-aligned inside graph)
-        if (count > 0) {
-            int last_idx = (m_ft_idx - 1 + kFtBufSize) & (kFtBufSize - 1);
-            char cur_buf[20];
-            snprintf(cur_buf, sizeof(cur_buf), "%.1fms", m_ft[last_idx]);
-            ImVec2 csz = font->CalcTextSizeA(fsz * 0.4f, 9999, -1.0f, cur_buf);
-            dl->AddText(font, fsz * 0.4f, ImVec2(gx + gw - csz.x - 4.0f, gy + gh + 3.0f),
-                        IM_COL32(200, 200, 210, 180), cur_buf);
-        }
-    }
-
-    // ── Memory usage ──────────────────────────────────────────────────
+    // ── Values ────────────────────────────────────────────────────────
+    char fps_buf[16], ft_buf[32], mem_buf[64];
+    snprintf(fps_buf, sizeof(fps_buf), "%3.0f", fps);
+    snprintf(ft_buf, sizeof(ft_buf), "FRAME  %.1f ms", 1000.0f / fps);
     auto [mem_total_kb, mem_avail_kb] = ReadMemInfo();
-    if (mem_total_kb > 0 && font) {
-        long used_kb = mem_total_kb - mem_avail_kb;
-        char mem_buf[64];
-        snprintf(mem_buf, sizeof(mem_buf), "RAM %ld MB / %ld MB",
-                 used_kb / 1024L, mem_total_kb / 1024L);
-        ImVec2 mem_sz = font->CalcTextSizeA(fsz * 0.4f, 9999, -1.0f, mem_buf);
-        dl->AddText(font, fsz * 0.4f,
-                    ImVec2(panel_pos.x + pad, panel_pos.y + panel_h - pad - mem_h + 2.0f),
-                    IM_COL32(160, 175, 200, 190), mem_buf);
+    if (mem_total_kb > 0) {
+        snprintf(mem_buf, sizeof(mem_buf), "RAM %ld / %ld MB",
+                 (mem_total_kb - mem_avail_kb) / 1024L, mem_total_kb / 1024L);
+    } else {
+        mem_buf[0] = '\0';
+    }
+
+    const ImVec2 fps_sz = text_size(fsz, fps_buf);
+    const ImVec2 ft_sz  = text_size(small, ft_buf);
+    const ImVec2 mem_sz = text_size(small, mem_buf);
+    const ImVec2 unit_sz = text_size(tiny, "FPS");
+
+    float content_w = ImMax(fps_sz.x + unit_sz.x + 6.0f * s, ImMax(ft_sz.x, mem_sz.x));
+    content_w = ImMax(content_w, 120.0f * s);
+    const float panel_w = content_w + pad * 2.0f;
+    const float panel_h = pad * 2.0f + fps_sz.y + gap + ft_sz.y + gap + graph_h + gap + mem_sz.y;
+
+    // ── Anchor: corner + inward offsets, then clamp inside the display ─
+    const ImVec2 display = io.DisplaySize;
+    const bool left   = cfg.hud_corner == HudCorner::TopLeft || cfg.hud_corner == HudCorner::BottomLeft;
+    const bool top    = cfg.hud_corner == HudCorner::TopLeft || cfg.hud_corner == HudCorner::TopRight;
+    float px = left ? margin + cfg.hud_offset_x
+                    : display.x - panel_w - margin - cfg.hud_offset_x;
+    float py = top  ? margin + cfg.hud_offset_y
+                    : display.y - panel_h - margin - cfg.hud_offset_y;
+    px = ImClamp(px, 4.0f, ImMax(4.0f, display.x - panel_w - 4.0f));
+    py = ImClamp(py, 4.0f, ImMax(4.0f, display.y - panel_h - 4.0f));
+    const ImVec2 origin(px, py);
+
+    // ── Panel ─────────────────────────────────────────────────────────
+    dl->AddRectFilled(origin, ImVec2(px + panel_w, py + panel_h),
+                      IM_COL32(10, 12, 18, 210), 8.0f * s);
+    dl->AddRect(origin, ImVec2(px + panel_w, py + panel_h),
+                IM_COL32(90, 100, 125, 110), 8.0f * s, 0, 1.0f * s);
+
+    float x = px + pad;
+    float y = py + pad;
+
+    // FPS, coloured by threshold; unit sits beside the number, never on top.
+    const ImU32 fps_col = fps >= 60.0f ? IM_COL32(80, 235, 90, 255)
+                        : fps >= 30.0f ? IM_COL32(245, 215, 70, 255)
+                                       : IM_COL32(245, 75, 75, 255);
+    draw_text(fsz, ImVec2(x, y), fps_col, fps_buf);
+    draw_text(tiny, ImVec2(x + fps_sz.x + 6.0f * s,
+                           y + (fps_sz.y - unit_sz.y) * 0.5f),
+              IM_COL32(150, 155, 170, 210), "FPS");
+    y += fps_sz.y + gap;
+
+    // Frametime readout, on its own row.
+    draw_text(small, ImVec2(x, y), IM_COL32(190, 195, 210, 230), ft_buf);
+    y += ft_sz.y + gap;
+
+    // ── Rolling frametime graph ───────────────────────────────────────
+    const float min_ft = 8.0f, max_ft = 50.0f;
+    const float gx = x, gy = y, gw = content_w, gh = graph_h;
+    auto ft_to_y = [&](float t) {
+        return gy + gh - (ImClamp(t, min_ft, max_ft) - min_ft) / (max_ft - min_ft) * gh;
+    };
+    dl->AddRectFilled(ImVec2(gx, gy), ImVec2(gx + gw, gy + gh),
+                      IM_COL32(24, 26, 34, 190), 3.0f * s);
+    // 60 / 30 FPS reference lines.
+    dl->AddLine(ImVec2(gx, ft_to_y(16.67f)), ImVec2(gx + gw, ft_to_y(16.67f)),
+                IM_COL32(0, 190, 60, 110), 1.0f * s);
+    dl->AddLine(ImVec2(gx, ft_to_y(33.33f)), ImVec2(gx + gw, ft_to_y(33.33f)),
+                IM_COL32(210, 150, 40, 100), 1.0f * s);
+
+    const float bar_w = ImMax(1.0f, gw / static_cast<float>(kFtBufSize));
+    for (int i = 0; i < kFtBufSize; ++i) {
+        const int idx = (m_ft_idx + i) & (kFtBufSize - 1);
+        const float val = m_ft[idx];
+        if (val <= 0.1f) continue;
+        const float by = ft_to_y(val);
+        const ImU32 col = val <= 16.67f ? IM_COL32(0, 205, 60, 230)
+                        : val <= 33.33f ? IM_COL32(220, 185, 40, 225)
+                                        : IM_COL32(220, 55, 55, 225);
+        dl->AddRectFilled(ImVec2(gx + i * bar_w, by),
+                          ImVec2(gx + (i + 1) * bar_w - 1.0f, gy + gh), col, 1.0f);
+    }
+    dl->AddRect(ImVec2(gx, gy), ImVec2(gx + gw, gy + gh),
+                IM_COL32(70, 75, 90, 170), 3.0f * s, 0, 1.0f * s);
+    y += gh + gap;
+
+    // RAM on the final row; no longer collides with the graph or its label.
+    if (mem_buf[0] != '\0') {
+        draw_text(small, ImVec2(x, y), IM_COL32(150, 175, 215, 220), mem_buf);
     }
 }
 

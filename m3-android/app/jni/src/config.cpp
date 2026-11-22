@@ -67,6 +67,12 @@ bool Config::Save(const std::string& path) {
         j["dev_mode"] = dev_mode;
         j["show_fps"] = show_fps;
         j["show_debug_info"] = show_debug_info;
+
+        // HUD (MangoHUD-style)
+        j["hud_corner"] = static_cast<int>(hud_corner);
+        j["hud_scale"] = hud_scale;
+        j["hud_offset_x"] = hud_offset_x;
+        j["hud_offset_y"] = hud_offset_y;
         
         std::ofstream file(path);
         file << j.dump(4);
@@ -129,6 +135,12 @@ bool Config::Load(const std::string& path) {
         dev_mode = j.value("dev_mode", dev_mode);
         show_fps = j.value("show_fps", show_fps);
         show_debug_info = j.value("show_debug_info", show_debug_info);
+
+        int corner = j.value("hud_corner", static_cast<int>(hud_corner));
+        hud_corner = static_cast<HudCorner>(corner >= 0 && corner <= 3 ? corner : static_cast<int>(HudCorner::TopRight));
+        hud_scale = j.value("hud_scale", hud_scale);
+        hud_offset_x = j.value("hud_offset_x", hud_offset_x);
+        hud_offset_y = j.value("hud_offset_y", hud_offset_y);
         
         return true;
     } catch (const std::exception& e) {
