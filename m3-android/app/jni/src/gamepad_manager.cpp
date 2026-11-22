@@ -138,6 +138,38 @@ void GamepadManager::FeedTouch(int pointer_id, bool down, float x, float y) {
     }
 }
 
+VirtualPadLayout VirtualPadLayout::Make(int width, int height) {
+    VirtualPadLayout L;
+    const float w = width  > 0 ? static_cast<float>(width)  : 2400.0f;
+    const float h = height > 0 ? static_cast<float>(height) : 1080.0f;
+    const float k = std::clamp(std::min(w / 2400.0f, h / 1080.0f), 0.65f, 1.30f);
+
+    L.stick_r = 96.0f * k;      L.stick_hit_r = 112.0f * k;
+    L.face_r  = 62.0f * k;      L.face_gap = 2.10f;
+    L.dpad_r  = 44.0f * k;      L.dpad_gap = 2.05f; L.dpad_hit_r = 34.0f * k;
+    L.trigger_w = 130.0f * k;   L.trigger_h = 62.0f * k;
+    L.bumper_w  = 140.0f * k;   L.bumper_h  = 54.0f * k;
+    L.guide_r   = 34.0f * k;
+    L.vm_w = 84.0f * k;         L.vm_h = 44.0f * k;
+
+    const float top = 26.0f * k;
+    L.lt = {w * 0.14f, top + L.trigger_h * 0.5f};
+    L.rt = {w * 0.86f, top + L.trigger_h * 0.5f};
+    L.lb = {w * 0.14f, top + L.trigger_h + 12.0f * k + L.bumper_h * 0.5f};
+    L.rb = {w * 0.86f, L.lb.y};
+    L.guide = {w * 0.5f, L.lb.y + L.bumper_h * 0.5f + 16.0f * k + L.guide_r};
+    L.view = {L.guide.x - 112.0f * k, L.guide.y};
+    L.menu = {L.guide.x + 112.0f * k, L.guide.y};
+
+    // Asymmetric Xbox layout: stick top-left, D-pad below it; face buttons
+    // high on the right, right stick low on the right so they never overlap.
+    L.left_stick  = {w * 0.18f, h * 0.62f};
+    L.right_stick = {w * 0.80f, h * 0.72f};
+    L.face        = {w * 0.90f, h * 0.52f};
+    L.dpad        = {w * 0.18f, L.left_stick.y + L.stick_r + 100.0f * k};
+    return L;
+}
+
 VirtualZone GamepadManager::HitTest(float sx, float sy) const {
     static int htc = 0;
     if (htc < 6) { htc++;
@@ -148,88 +180,50 @@ VirtualZone GamepadManager::HitTest(float sx, float sy) const {
     }
     if (!m_virtual_gamepad_visible || m_display_width <= 0 || m_display_height <= 0)
         return VirtualZone::None;
+    // The virtual pad only exists while no physical controller is detected.
+    if (m_current_state.type == GamepadType::Physical) return VirtualZone::None;
 
-    // ===== XBOX ASYMMETRIC LAYOUT =====
-    // Left stick TOP-LEFT (17%, 65%), D-pad BOTTOM-LEFT
-    const float lcx = m_display_width  * 0.17f;
-    const float lcy = m_display_height * 0.65f;
-    const float R   = GetStickRadius();
-
-    // Right stick BOTTOM-RIGHT (83%, 73%) — lower than face buttons
-    const float rcx = m_display_width  * 0.83f;
-    const float rcy = m_display_height * 0.73f;
-
-    // Face button cluster center (right side, above right stick)
-    const float bdx = m_display_width  * 0.87f;
-    const float bdy = m_display_height * 0.58f;
-    const float br  = 58.f;
-
-    // D-pad (centered below left stick)
-    const float dpx = lcx;
-    const float dpy = lcy + R + 45.f;
-    const float dr  = 38.f;
-
-    // Triggers (top edge)
-    const float lt_x = m_display_width * 0.12f, lt_y = 24.f;
-    const float rt_x = m_display_width * 0.88f, rt_y = 24.f;
-    // Bumpers (below triggers)
-    const float lb_x = lt_x, lb_y = lt_y + 55.f + 8.f;
-    const float rb_x = rt_x, rb_y = lb_y;
-
-    // Guide button (top-center)
-    const float gx = m_display_width * 0.5f;
-    const float gy = 87.f;
-
-    // View / Menu buttons
-    const float view_x = gx - 85.f, menu_x = gx + 85.f;
-    const float vm_y = gy + 5.f;
-
-    auto pt_in_circ = [](float px, float py, float cx, float cy, float r) -> bool {
-        return std::hypot(px - cx, py - cy) <= r;
+    const VirtualPadLayout L = GetLayout();
+    auto in_circ = [](float px, float py, VirtualPadLayout::Point c, float r) {
+        return std::hypot(px - c.x, py - c.y) <= r;
+    };
+    auto in_rect = [](float px, float py, VirtualPadLayout::Point c, float w, float h) {
+        return std::fabs(px - c.x) <= w * 0.5f && std::fabs(py - c.y) <= h * 0.5f;
     };
 
-    // Face buttons — diamond layout (A bottom, B right, X left, Y top)
-    // Offsets must match the spacing used in RenderVirtualGamepad (btn_R * 2.15f).
-    if (pt_in_circ(sx, sy, bdx,                  bdy - br * 2.15f, br)) return VirtualZone::Y;
-    if (pt_in_circ(sx, sy, bdx + br * 2.15f,     bdy,                         br)) return VirtualZone::B;
-    if (pt_in_circ(sx, sy, bdx,                  bdy + br * 2.15f, br)) return VirtualZone::A;
-    if (pt_in_circ(sx, sy, bdx - br * 2.15f,     bdy,                         br)) return VirtualZone::X;
+    // Face buttons first: they are drawn on top of every other control.
+    const float fr = L.face_r, fg = L.face_r * L.face_gap;
+    if (in_circ(sx, sy, {L.face.x, L.face.y - fg}, fr)) return VirtualZone::Y;
+    if (in_circ(sx, sy, {L.face.x + fg, L.face.y}, fr)) return VirtualZone::B;
+    if (in_circ(sx, sy, {L.face.x, L.face.y + fg}, fr)) return VirtualZone::A;
+    if (in_circ(sx, sy, {L.face.x - fg, L.face.y}, fr)) return VirtualZone::X;
 
-    // D-pad (cross BELOW left stick)
-    if (pt_in_circ(sx, sy, dpx, dpy - dr * 2.1f, dr * 0.8f)) return VirtualZone::DPadUp;
-    if (pt_in_circ(sx, sy, dpx, dpy + dr * 2.1f, dr * 0.8f)) return VirtualZone::DPadDown;
-    if (pt_in_circ(sx, sy, dpx - dr * 2.1f, dpy, dr * 0.8f)) return VirtualZone::DPadLeft;
-    if (pt_in_circ(sx, sy, dpx + dr * 2.1f, dpy, dr * 0.8f)) return VirtualZone::DPadRight;
+    // D-pad arms (same centres and radii used when drawing).
+    const float dg = L.dpad_r * L.dpad_gap, dr = L.dpad_hit_r;
+    if (in_circ(sx, sy, {L.dpad.x, L.dpad.y - dg}, dr)) return VirtualZone::DPadUp;
+    if (in_circ(sx, sy, {L.dpad.x, L.dpad.y + dg}, dr)) return VirtualZone::DPadDown;
+    if (in_circ(sx, sy, {L.dpad.x - dg, L.dpad.y}, dr)) return VirtualZone::DPadLeft;
+    if (in_circ(sx, sy, {L.dpad.x + dg, L.dpad.y}, dr)) return VirtualZone::DPadRight;
 
-    // Left stick — TOP-LEFT
-    if (pt_in_circ(sx, sy, lcx, lcy, R * 1.12f)) return VirtualZone::LeftStick;
-    // Right stick — BOTTOM-RIGHT
-    if (pt_in_circ(sx, sy, rcx, rcy, R * 1.12f)) return VirtualZone::RightStick;
+    // Sticks.
+    if (in_circ(sx, sy, L.left_stick, L.stick_hit_r))  return VirtualZone::LeftStick;
+    if (in_circ(sx, sy, L.right_stick, L.stick_hit_r)) return VirtualZone::RightStick;
 
-    // Triggers (LT / RT)
-    if (pt_in_circ(sx, sy, lt_x, lt_y, 52.f)) return VirtualZone::LT;
-    if (pt_in_circ(sx, sy, rt_x, rt_y, 52.f)) return VirtualZone::RT;
-    // Bumpers (LB / RB)
-    if (pt_in_circ(sx, sy, lb_x, lb_y, 55.f)) return VirtualZone::LB;
-    if (pt_in_circ(sx, sy, rb_x, rb_y, 55.f)) return VirtualZone::RB;
+    // Triggers and bumpers are rectangles: hit-test the actual drawn shape.
+    if (in_rect(sx, sy, L.lt, L.trigger_w, L.trigger_h)) return VirtualZone::LT;
+    if (in_rect(sx, sy, L.rt, L.trigger_w, L.trigger_h)) return VirtualZone::RT;
+    if (in_rect(sx, sy, L.lb, L.bumper_w, L.bumper_h)) return VirtualZone::LB;
+    if (in_rect(sx, sy, L.rb, L.bumper_w, L.bumper_h)) return VirtualZone::RB;
 
-    // Guide button
-    if (pt_in_circ(sx, sy, gx, gy, 30.f)) return VirtualZone::Guide;
-    // View (left) and Menu (right)
-    if ((sx >= view_x - 35.f && sx <= view_x + 35.f) && (sy >= vm_y - 19.f && sy <= vm_y + 19.f))
-      return VirtualZone::View;
-    if ((sx >= menu_x - 35.f && sx <= menu_x + 35.f) && (sy >= vm_y - 19.f && sy <= vm_y + 19.f))
-      return VirtualZone::Menu;
+    if (in_circ(sx, sy, L.guide, L.guide_r)) return VirtualZone::Guide;
+    if (in_rect(sx, sy, L.view, L.vm_w, L.vm_h)) return VirtualZone::View;
+    if (in_rect(sx, sy, L.menu, L.vm_w, L.vm_h)) return VirtualZone::Menu;
 
     return VirtualZone::None;
 }
 
 void GamepadManager::UpdateVirtualState() {
-    const float R = GetStickRadius();
-    const float lcx = m_display_width  * 0.17f;
-    const float lcy = m_display_height * 0.65f;
-    const float rcx = m_display_width  * 0.83f;
-    const float rcy = m_display_height * 0.73f;
+    const VirtualPadLayout L = GetLayout();
 
     // Reset directional inputs each frame
     m_current_state.dpad_x = 0;
@@ -247,8 +241,8 @@ void GamepadManager::UpdateVirtualState() {
 
         switch (z) {
         case VirtualZone::LeftStick: {
-            float dx = (tx - lcx) / R;
-            float dy = (ty - lcy) / R;
+            float dx = (tx - L.left_stick.x) / L.stick_r;
+            float dy = (ty - L.left_stick.y) / L.stick_r;
             dx = std::clamp(dx, -1.f, 1.f);
             dy = std::clamp(dy, -1.f, 1.f);
             m_current_state.left_x  = dx;
@@ -256,8 +250,8 @@ void GamepadManager::UpdateVirtualState() {
             break;
         }
         case VirtualZone::RightStick: {
-            float dx = (tx - rcx) / R;
-            float dy = (ty - rcy) / R;
+            float dx = (tx - L.right_stick.x) / L.stick_r;
+            float dy = (ty - L.right_stick.y) / L.stick_r;
             dx = std::clamp(dx, -1.f, 1.f);
             dy = std::clamp(dy, -1.f, 1.f);
             m_current_state.right_x  = dx;

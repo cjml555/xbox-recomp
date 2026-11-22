@@ -1259,281 +1259,138 @@ void MenuSystem::RenderHUD(float fps) {
 
 void MenuSystem::RenderVirtualGamepad() {
     if (!GetConfig().virtual_gamepad_enabled) return;
-    if (!GetGamepadManager().IsVirtualGamepadVisible()) return;
+    GamepadManager& gp = GetGamepadManager();
+    if (!gp.IsVirtualGamepadVisible() || gp.IsPhysicalConnected()) return;
 
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    const VirtualPadLayout L = gp.GetLayout();
+    const auto& state = gp.GetState();
+    ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
+    const float k = L.face_r / 62.0f;
 
-    const float W = io.DisplaySize.x;
-    const float H = io.DisplaySize.y;
+    // Xbox-style palette; every control uses the same shared layout as hit-test.
+    const ImU32 col_A = IM_COL32(0, 179, 68, 235),   col_Ap = IM_COL32(60, 235, 110, 255);
+    const ImU32 col_B = IM_COL32(230, 0, 35, 235),   col_Bp = IM_COL32(255, 55, 80, 255);
+    const ImU32 col_X = IM_COL32(0, 90, 230, 235),   col_Xp = IM_COL32(60, 140, 255, 255);
+    const ImU32 col_Y = IM_COL32(255, 185, 0, 235),  col_Yp = IM_COL32(255, 215, 60, 255);
+    const ImU32 col_dark = IM_COL32(16, 18, 24, 230);
+    const ImU32 col_panel = IM_COL32(28, 30, 38, 240);
+    const ImU32 col_ring = IM_COL32(115, 120, 138, 255);
+    const ImU32 col_text = IM_COL32(240, 242, 248, 255);
+    const ImU32 col_dim = IM_COL32(175, 180, 195, 235);
+    const ImU32 col_shadow = IM_COL32(0, 0, 0, 115);
+    const ImU32 col_green = IM_COL32(0, 179, 68, 255);
 
-    const float pad = 16.0f;
-    const float stick_R = 110.0f;  // Larger stick radius
-    const float btn_R = 58.0f;     // Larger face button radius
-    const float dpad_R = 38.0f;    // Larger D-pad buttons
-    const float trig_h = 55.0f;    // Trigger height
-    const float trig_w = 100.0f;   // Trigger width
-    const float bmpr_h = 50.0f;    // Bumper height
-    const float bmpr_w = 105.0f;   // Bumper width
-    const float guide_R = 30.0f;   // Xbox Guide button radius
+    auto P = [](VirtualPadLayout::Point p) { return ImVec2(p.x, p.y); };
 
-    // Xbox official colors
-    const ImU32 col_A = IM_COL32(0x00, 0xB3, 0x44, 0xE6);    // Green #00B344
-    const ImU32 col_B = IM_COL32(0xE6, 0x00, 0x23, 0xE6);    // Red #E60023
-    const ImU32 col_X = IM_COL32(0x00, 0x5A, 0xE6, 0xE6);    // Blue #005AE6
-    const ImU32 col_Y = IM_COL32(0xFF, 0xB9, 0x00, 0xE6);    // Yellow #FFB900
-    const ImU32 col_A_press = IM_COL32(0x00, 0xE6, 0x5A, 0xFF);
-    const ImU32 col_B_press = IM_COL32(0xFF, 0x2A, 0x4D, 0xFF);
-    const ImU32 col_X_press = IM_COL32(0x2A, 0x7A, 0xFF, 0xFF);
-    const ImU32 col_Y_press = IM_COL32(0xFF, 0xD4, 0x2A, 0xFF);
-
-    const ImU32 col_stick_bg = IM_COL32(28, 28, 30, 230);
-    const ImU32 col_stick_ring = IM_COL32(80, 80, 85, 255);
-    const ImU32 col_stick_knob = IM_COL32(200, 200, 205, 245);
-    const ImU32 col_stick_knob_inner = IM_COL32(160, 160, 170, 230);
-    const ImU32 col_dpad_bg = IM_COL32(35, 35, 38, 235);
-    const ImU32 col_dpad_ring = IM_COL32(85, 85, 90, 255);
-    const ImU32 col_trigger_bg = IM_COL32(25, 25, 28, 230);
-    const ImU32 col_trigger_ring = IM_COL32(75, 75, 80, 255);
-    const ImU32 col_bumper_bg = IM_COL32(25, 25, 28, 230);
-    const ImU32 col_bumper_ring = IM_COL32(75, 75, 80, 255);
-    const ImU32 col_guide_bg = IM_COL32(15, 15, 18, 240);
-    const ImU32 col_guide_ring = IM_COL32(0, 179, 68, 255);  // Xbox green
-    const ImU32 col_guide_glow = IM_COL32(0, 179, 68, 120);
-    const ImU32 col_text = IM_COL32(235, 235, 240, 245);
-    const ImU32 col_text_dim = IM_COL32(160, 160, 170, 220);
-    const ImU32 col_shadow = IM_COL32(0, 0, 0, 100);
-
-    // Get live state for visual feedback
-    const auto& state = GetGamepadManager().GetState();
-    const bool is_virtual = (state.type == GamepadType::Virtual);
-
-    // ===== XBOX ASYMMETRIC LAYOUT =====
-    // Left stick TOP-LEFT, D-pad BOTTOM-LEFT
-    const float lcx = W * 0.17f;
-    const float lcy = H * 0.65f;
-    // Right stick BOTTOM-RIGHT (lower than face buttons)
-    const float rcx = W * 0.83f;
-    const float rcy = H * 0.73f;
-    // Face buttons (diamond) right side
-    const float bdx = W * 0.87f;
-    const float bdy = H * 0.58f;
-    // D-pad left side (below left stick)
-    const float dpx = lcx;
-    const float dpy = lcy + stick_R + 45.0f;
-    // Triggers (top edge)
-    const float ltx = W * 0.12f;
-    const float rtx = W * 0.88f;
-    const float ty = pad + 8.0f;
-    // Bumpers (below triggers)
-    const float lbx = W * 0.12f;
-    const float rbx = W * 0.88f;
-    const float by = ty + trig_h + 8.0f;
-    // Guide button (top center)
-    const float gx = W * 0.5f;
-    const float gy = pad + trig_h + 16.0f;
-    // View/Menu buttons (center top)
-    const float view_x = gx - 85.0f;
-    const float menu_x = gx + 85.0f;
-    const float vm_y = gy + 5.0f;
-    const float vm_w = 70.0f, vm_h = 38.0f;
-
-    auto draw_xbox_button = [&](float cx, float cy, float r, ImU32 base_col, ImU32 press_col,
-                                 const char* label, float label_scale = 1.0f, bool pressed = false) {
-        ImU32 col = pressed ? press_col : base_col;
-        // Shadow
-        dl->AddCircleFilled(ImVec2(cx + 2, cy + 3), r + 2, col_shadow, 32);
-        // Main button
-        dl->AddCircleFilled(ImVec2(cx, cy), r, col, 32);
-        // Glossy highlight (top)
-        ImU32 highlight = IM_COL32(255, 255, 255, pressed ? 40 : 70);
-        dl->AddCircleFilled(ImVec2(cx, cy - r * 0.25f), r * 0.7f, highlight, 32);
-        // Outer ring
-        dl->AddCircle(ImVec2(cx, cy), r, IM_COL32(0, 0, 0, 120), 32, 1.5f);
-        // Label
-        ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
-        float fsz = 26.0f * label_scale;
-        ImVec2 ts = font ? font->CalcTextSizeA(fsz, 9999, -1.0f, label)
-                         : ImVec2(strlen(label) * fsz * 0.55f, fsz);
-        dl->AddText(font, fsz, ImVec2(cx - ts.x * 0.5f, cy - ts.y * 0.5f), col_text, label);
+    auto text = [&](const char* s, float x, float y, float size, ImU32 col) {
+        ImVec2 ts = font ? font->CalcTextSizeA(size, 9999.0f, -1.0f, s)
+                         : ImVec2(strlen(s) * size * 0.6f, size);
+        dl->AddText(font, size, ImVec2(x - ts.x * 0.5f, y - ts.y * 0.55f), col, s);
     };
 
-    auto draw_dpad_button = [&](float cx, float cy, float w, float h, const char* label, bool pressed = false) {
-        ImU32 col = pressed ? IM_COL32(100, 100, 110, 255) : col_dpad_bg;
-        ImU32 ring = pressed ? IM_COL32(150, 150, 160, 255) : col_dpad_ring;
-        // Shadow
-        dl->AddRectFilled(ImVec2(cx - w + 2, cy - h + 3), ImVec2(cx + w + 2, cy + h + 3), col_shadow, 8);
-        // Main
-        dl->AddRectFilled(ImVec2(cx - w, cy - h), ImVec2(cx + w, cy + h), col, 8);
-        // Highlight
-        ImU32 hl = IM_COL32(255, 255, 255, pressed ? 30 : 55);
-        dl->AddRectFilled(ImVec2(cx - w * 0.8f, cy - h), ImVec2(cx + w * 0.8f, cy), hl, 8);
-        // Ring
-        dl->AddRect(ImVec2(cx - w, cy - h), ImVec2(cx + w, cy + h), ring, 8, 0, 1.5f);
-        // Label
-        ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
-        float fsz = 20.0f;
-        ImVec2 ts = font ? font->CalcTextSizeA(fsz, 9999, -1.0f, label)
-                         : ImVec2(strlen(label) * fsz * 0.5f, fsz);
-        dl->AddText(font, fsz, ImVec2(cx - ts.x * 0.5f, cy - ts.y * 0.5f), col_text, label);
+    // Rounded Xbox face button with letter, gloss and pressed feedback.
+    auto face_button = [&](VirtualPadLayout::Point c, float r, ImU32 base, ImU32 pressed_col,
+                           const char* label, bool pressed) {
+        const float rr = pressed ? r * 0.92f : r;
+        dl->AddCircleFilled(ImVec2(c.x + 3 * k, c.y + 4 * k), rr + 3 * k, col_shadow, 32);
+        dl->AddCircleFilled(ImVec2(c.x, c.y), rr, pressed ? pressed_col : base, 32);
+        dl->AddCircleFilled(ImVec2(c.x, c.y - rr * 0.22f), rr * 0.72f,
+                            IM_COL32(255, 255, 255, pressed ? 40 : 70), 32);
+        dl->AddCircle(ImVec2(c.x, c.y), rr, IM_COL32(0, 0, 0, 130), 32, 2.0f * k);
+        text(label, c.x, c.y, 36.0f * k, col_text);
     };
 
-    auto draw_trigger = [&](float cx, float cy, float w, float h, const char* label, bool left_side) {
-        // Shadow
-        dl->AddRectFilled(ImVec2(cx - w * 0.5f + 3, cy - h * 0.5f + 3),
-                          ImVec2(cx + w * 0.5f + 3, cy + h * 0.5f + 3), col_shadow, 14);
-        // Main
-        dl->AddRectFilled(ImVec2(cx - w * 0.5f, cy - h * 0.5f),
-                          ImVec2(cx + w * 0.5f, cy + h * 0.5f), col_trigger_bg, 14);
-        // Glossy top
-        ImU32 hl = IM_COL32(255, 255, 255, 50);
-        dl->AddRectFilled(ImVec2(cx - w * 0.45f, cy - h * 0.5f),
-                          ImVec2(cx + w * 0.45f, cy), hl, 14);
-        // Ring
-        dl->AddRect(ImVec2(cx - w * 0.5f, cy - h * 0.5f),
-                    ImVec2(cx + w * 0.5f, cy + h * 0.5f), col_trigger_ring, 14, 0, 1.5f);
-        // Label
-        ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
-        float fsz = 17.0f;
-        ImVec2 ts = font ? font->CalcTextSizeA(fsz, 9999, -1.0f, label)
-                         : ImVec2(strlen(label) * fsz * 0.5f, fsz);
-        float lx = left_side ? (cx - w * 0.5f + 12) : (cx + w * 0.5f - ts.x - 12);
-        dl->AddText(font, fsz, ImVec2(lx, cy - ts.y * 0.5f), col_text_dim, label);
+    // Small rounded button (bumpers, View, Menu).
+    auto small_button = [&](VirtualPadLayout::Point c, float w, float h, const char* label,
+                            bool pressed, float label_size = 21.0f) {
+        ImVec2 a(c.x - w * 0.5f, c.y - h * 0.5f), b(c.x + w * 0.5f, c.y + h * 0.5f);
+        dl->AddRectFilled(ImVec2(a.x + 2 * k, a.y + 3 * k), ImVec2(b.x + 2 * k, b.y + 3 * k), col_shadow, 12 * k);
+        dl->AddRectFilled(a, b, pressed ? col_green : col_panel, 12 * k);
+        dl->AddRectFilled(ImVec2(a.x + 5 * k, a.y + 3 * k), ImVec2(b.x - 5 * k, c.y),
+                          IM_COL32(255, 255, 255, pressed ? 35 : 50), 10 * k);
+        dl->AddRect(a, b, pressed ? col_green : col_ring, 12 * k, 0, 2.0f * k);
+        text(label, c.x, c.y, label_size * k, pressed ? col_text : col_dim);
     };
 
-    auto draw_bumper = [&](float cx, float cy, float w, float h, const char* label, bool left_side) {
-        // Shadow
-        dl->AddRectFilled(ImVec2(cx - w * 0.5f + 2, cy - h * 0.5f + 2),
-                          ImVec2(cx + w * 0.5f + 2, cy + h * 0.5f + 2), col_shadow, 12);
-        // Main
-        dl->AddRectFilled(ImVec2(cx - w * 0.5f, cy - h * 0.5f),
-                          ImVec2(cx + w * 0.5f, cy + h * 0.5f), col_bumper_bg, 12);
-        // Glossy
-        ImU32 hl = IM_COL32(255, 255, 255, 45);
-        dl->AddRectFilled(ImVec2(cx - w * 0.45f, cy - h * 0.5f),
-                          ImVec2(cx + w * 0.45f, cy), hl, 12);
-        // Ring
-        dl->AddRect(ImVec2(cx - w * 0.5f, cy - h * 0.5f),
-                    ImVec2(cx + w * 0.5f, cy + h * 0.5f), col_bumper_ring, 12, 0, 1.5f);
-        // Label
-        ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
-        float fsz = 16.0f;
-        ImVec2 ts = font ? font->CalcTextSizeA(fsz, 9999, -1.0f, label)
-                         : ImVec2(strlen(label) * fsz * 0.5f, fsz);
-        float lx = left_side ? (cx - w * 0.5f + 12) : (cx + w * 0.5f - ts.x - 12);
-        dl->AddText(font, fsz, ImVec2(lx, cy - ts.y * 0.5f), col_text_dim, label);
+    // Trigger: rounded bar with a live fill level from the analog value.
+    auto trigger = [&](VirtualPadLayout::Point c, float w, float h, const char* label,
+                       float fill, bool pressed) {
+        ImVec2 a(c.x - w * 0.5f, c.y - h * 0.5f), b(c.x + w * 0.5f, c.y + h * 0.5f);
+        dl->AddRectFilled(ImVec2(a.x + 3 * k, a.y + 4 * k), ImVec2(b.x + 3 * k, b.y + 4 * k), col_shadow, 14 * k);
+        dl->AddRectFilled(a, b, pressed ? col_green : col_dark, 14 * k);
+        if (fill > 0.01f) {
+            const float top = b.y - 5 * k - (h - 10 * k) * fill;
+            dl->AddRectFilled(ImVec2(a.x + 5 * k, top), ImVec2(b.x - 5 * k, b.y - 5 * k),
+                              IM_COL32(0, 179, 68, 200), 10 * k);
+        }
+        dl->AddRect(a, b, col_ring, 14 * k, 0, 2.0f * k);
+        text(label, c.x, c.y, 23.0f * k, col_text);
     };
 
-    // ===== DRAW ORDER: Back to front =====
+    // D-pad arm: same centre/radius the hit-test uses.
+    auto dpad_arm = [&](float x, float y, float w, float h, const char* glyph, bool pressed) {
+        ImVec2 a(x - w * 0.5f, y - h * 0.5f), b(x + w * 0.5f, y + h * 0.5f);
+        dl->AddRectFilled(ImVec2(a.x + 2 * k, a.y + 3 * k), ImVec2(b.x + 2 * k, b.y + 3 * k), col_shadow, 10 * k);
+        dl->AddRectFilled(a, b, pressed ? col_green : col_panel, 10 * k);
+        dl->AddRect(a, b, pressed ? col_green : col_ring, 10 * k, 0, 2.0f * k);
+        text(glyph, x, y, 26.0f * k, pressed ? col_text : col_dim);
+    };
 
-    // --- Triggers (LT / RT) ---
-    draw_trigger(ltx, ty, trig_w, trig_h, "LT", true);
-    draw_trigger(rtx, ty, trig_w, trig_h, "RT", false);
+    auto stick = [&](VirtualPadLayout::Point c, float ax, float ay) {
+        const ImVec2 cp = P(c);
+        dl->AddCircleFilled(cp, L.stick_r + 10 * k, col_shadow, 48);
+        dl->AddCircleFilled(cp, L.stick_r + 6 * k, col_dark, 48);
+        dl->AddCircle(cp, L.stick_r + 6 * k, col_ring, 48, 2.0f * k);
+        dl->AddCircle(cp, L.stick_r * 0.62f, IM_COL32(70, 75, 90, 170), 40, 1.5f * k);
+        dl->AddCircle(cp, L.stick_r * 0.22f, IM_COL32(95, 100, 115, 200), 32, 1.0f * k);
+        ImVec2 knob(c.x + ax * L.stick_r * 0.85f, c.y - ay * L.stick_r * 0.85f);
+        dl->AddCircleFilled(ImVec2(knob.x + 2 * k, knob.y + 3 * k), 30 * k, col_shadow, 32);
+        dl->AddCircleFilled(knob, 27 * k, IM_COL32(210, 212, 220, 250), 32);
+        dl->AddCircleFilled(ImVec2(knob.x - 4 * k, knob.y - 5 * k), 15 * k, IM_COL32(160, 164, 176, 240), 32);
+        dl->AddCircle(knob, 27 * k, IM_COL32(120, 124, 138, 220), 32, 2.0f * k);
+    };
 
-    // --- Bumpers (LB / RB) ---
-    draw_bumper(lbx, by, bmpr_w, bmpr_h, "LB", true);
-    draw_bumper(rbx, by, bmpr_w, bmpr_h, "RB", false);
+    // Backing plates lift the controls off bright game frames.
+    dl->AddCircleFilled(P(L.left_stick), L.stick_r * 1.35f, IM_COL32(0, 0, 0, 45), 48);
+    dl->AddCircleFilled(P(L.right_stick), L.stick_r * 1.35f, IM_COL32(0, 0, 0, 45), 48);
+    dl->AddCircleFilled(P(L.dpad), L.dpad_r * 3.0f, IM_COL32(0, 0, 0, 45), 40);
+    dl->AddCircleFilled(P(L.face), L.face_r * 3.4f, IM_COL32(0, 0, 0, 45), 40);
 
-    // --- Xbox Guide Button (center top) ---
-    // Glow ring
-    dl->AddCircleFilled(ImVec2(gx, gy), guide_R + 6, col_guide_glow, 40);
-    // Main button
-    dl->AddCircleFilled(ImVec2(gx, gy), guide_R, col_guide_bg, 40);
-    // Green ring
-    dl->AddCircle(ImVec2(gx, gy), guide_R, col_guide_ring, 40, 2.5f);
-    // Inner highlight
-    ImU32 guide_hl = IM_COL32(0, 200, 80, 60);
-    dl->AddCircleFilled(ImVec2(gx, gy - guide_R * 0.3f), guide_R * 0.6f, guide_hl, 40);
-    // Xbox "X" glyph (drawn as stylized lines)
-    float gx1 = gx - 9, gx2 = gx + 9, gy1 = gy - 9, gy2 = gy + 9;
-    dl->AddLine(ImVec2(gx1, gy1), ImVec2(gx2, gy2), col_guide_ring, 3.0f);
-    dl->AddLine(ImVec2(gx1, gy2), ImVec2(gx2, gy1), col_guide_ring, 3.0f);
+    // Triggers / bumpers.
+    trigger(L.lt, L.trigger_w, L.trigger_h, "LT", state.left_trigger, state.left_trigger > 0.5f);
+    trigger(L.rt, L.trigger_w, L.trigger_h, "RT", state.right_trigger, state.right_trigger > 0.5f);
+    small_button(L.lb, L.bumper_w, L.bumper_h, "LB", state.lb);
+    small_button(L.rb, L.bumper_w, L.bumper_h, "RB", state.rb);
 
-    // --- View / Menu buttons ---
-    // View (two squares)
-    dl->AddRectFilled(ImVec2(view_x - vm_w * 0.5f, vm_y - vm_h * 0.5f),
-                      ImVec2(view_x + vm_w * 0.5f, vm_y + vm_h * 0.5f), col_bumper_bg, 8);
-    dl->AddRect(ImVec2(view_x - vm_w * 0.5f, vm_y - vm_h * 0.5f),
-                ImVec2(view_x + vm_w * 0.5f, vm_y + vm_h * 0.5f), col_bumper_ring, 8, 0, 1.5f);
-    // Two overlapping squares icon
-    float sq = 10.0f;
-    dl->AddRect(ImVec2(view_x - sq - 2, vm_y - sq), ImVec2(view_x - 2, vm_y + sq), col_text, 2, 0, 2.0f);
-    dl->AddRect(ImVec2(view_x + 2, vm_y - sq), ImVec2(view_x + sq + 2, vm_y + sq), col_text, 2, 0, 2.0f);
+    // Xbox Guide and View/Menu cluster.
+    dl->AddCircleFilled(P(L.guide), L.guide_r + 8 * k, IM_COL32(0, 179, 68, 75), 40);
+    dl->AddCircleFilled(P(L.guide), L.guide_r, state.guide ? col_green : col_dark, 40);
+    dl->AddCircle(P(L.guide), L.guide_r, col_green, 40, 3.0f * k);
+    const float gs = 11 * k;
+    dl->AddLine(ImVec2(L.guide.x - gs, L.guide.y - gs), ImVec2(L.guide.x + gs, L.guide.y + gs), col_green, 4 * k);
+    dl->AddLine(ImVec2(L.guide.x - gs, L.guide.y + gs), ImVec2(L.guide.x + gs, L.guide.y - gs), col_green, 4 * k);
+    small_button(L.view, L.vm_w, L.vm_h, "VIEW", state.back, 18.0f);
+    small_button(L.menu, L.vm_w, L.vm_h, "MENU", state.start, 18.0f);
 
-    // Menu (three lines)
-    dl->AddRectFilled(ImVec2(menu_x - vm_w * 0.5f, vm_y - vm_h * 0.5f),
-                      ImVec2(menu_x + vm_w * 0.5f, vm_y + vm_h * 0.5f), col_bumper_bg, 8);
-    dl->AddRect(ImVec2(menu_x - vm_w * 0.5f, vm_y - vm_h * 0.5f),
-                ImVec2(menu_x + vm_w * 0.5f, vm_y + vm_h * 0.5f), col_bumper_ring, 8, 0, 1.5f);
-    float ml = 18.0f, mw = 14.0f;
-    dl->AddLine(ImVec2(menu_x - mw * 0.5f, vm_y - ml * 0.5f), ImVec2(menu_x + mw * 0.5f, vm_y - ml * 0.5f), col_text, 2.5f);
-    dl->AddLine(ImVec2(menu_x - mw * 0.5f, vm_y), ImVec2(menu_x + mw * 0.5f, vm_y), col_text, 2.5f);
-    dl->AddLine(ImVec2(menu_x - mw * 0.5f, vm_y + ml * 0.5f), ImVec2(menu_x + mw * 0.5f, vm_y + ml * 0.5f), col_text, 2.5f);
+    // Analog sticks with live knob position.
+    stick(L.left_stick, state.left_x, state.left_y);
+    stick(L.right_stick, state.right_x, state.right_y);
 
-    // --- Left Stick (TOP-LEFT) ---
-    // Base ring
-    dl->AddCircleFilled(ImVec2(lcx, lcy), stick_R + 8, col_stick_bg, 48);
-    dl->AddCircle(ImVec2(lcx, lcy), stick_R + 8, col_stick_ring, 48, 2.0f);
-    // Inner deadzone indicator
-    dl->AddCircle(ImVec2(lcx, lcy), stick_R * 0.25f, IM_COL32(60, 60, 65, 180), 32, 1.0f);
+    // D-pad cross: four large arms, pressed arm lights up green.
+    const float dr = L.dpad_r, dg = L.dpad_r * L.dpad_gap;
+    dpad_arm(L.dpad.x, L.dpad.y - dg, dr * 1.7f, dr * 2.0f, "^", state.dpad_y > 0);
+    dpad_arm(L.dpad.x, L.dpad.y + dg, dr * 1.7f, dr * 2.0f, "v", state.dpad_y < 0);
+    dpad_arm(L.dpad.x - dg, L.dpad.y, dr * 2.0f, dr * 1.7f, "<", state.dpad_x < 0);
+    dpad_arm(L.dpad.x + dg, L.dpad.y, dr * 2.0f, dr * 1.7f, ">", state.dpad_x > 0);
 
-    // --- D-Pad (BOTTOM-LEFT, below left stick) ---
-    // Center
-    draw_dpad_button(dpx, dpy, dpad_R, dpad_R, "", false);
-    // Up
-    draw_dpad_button(dpx, dpy - dpad_R * 2.1f, dpad_R * 0.7f, dpad_R * 0.9f, "^",
-                     is_virtual && state.dpad_y > 0);
-    // Down
-    draw_dpad_button(dpx, dpy + dpad_R * 2.1f, dpad_R * 0.7f, dpad_R * 0.9f, "v",
-                     is_virtual && state.dpad_y < 0);
-    // Left
-    draw_dpad_button(dpx - dpad_R * 2.1f, dpy, dpad_R * 0.9f, dpad_R * 0.7f, "<",
-                     is_virtual && state.dpad_x < 0);
-    // Right
-    draw_dpad_button(dpx + dpad_R * 2.1f, dpy, dpad_R * 0.9f, dpad_R * 0.7f, ">",
-                     is_virtual && state.dpad_x > 0);
-
-    // --- Right Stick (BOTTOM-RIGHT) ---
-    dl->AddCircleFilled(ImVec2(rcx, rcy), stick_R + 8, col_stick_bg, 48);
-    dl->AddCircle(ImVec2(rcx, rcy), stick_R + 8, col_stick_ring, 48, 2.0f);
-    dl->AddCircle(ImVec2(rcx, rcy), stick_R * 0.25f, IM_COL32(60, 60, 65, 180), 32, 1.0f);
-
-    // --- Face Buttons (Diamond, RIGHT side) ---
-    // Y (Top) - Yellow
-    draw_xbox_button(bdx, bdy - btn_R * 2.15f, btn_R, col_Y, col_Y_press, "Y", 0.95f,
-                     is_virtual && state.y);
-    // B (Right) - Red
-    draw_xbox_button(bdx + btn_R * 2.15f, bdy, btn_R, col_B, col_B_press, "B", 0.95f,
-                     is_virtual && state.b);
-    // A (Bottom) - Green
-    draw_xbox_button(bdx, bdy + btn_R * 2.15f, btn_R, col_A, col_A_press, "A", 0.95f,
-                     is_virtual && state.a);
-    // X (Left) - Blue
-    draw_xbox_button(bdx - btn_R * 2.15f, bdy, btn_R, col_X, col_X_press, "X", 0.95f,
-                     is_virtual && state.x);
-
-    // --- Live Knob Positions (overlay on stick bases) ---
-    if (is_virtual) {
-        // Left stick knob
-        float kx = lcx + state.left_x * stick_R * 0.85f;
-        float ky = lcy - state.left_y * stick_R * 0.85f;
-        // Knob shadow
-        dl->AddCircleFilled(ImVec2(kx + 1, ky + 2), 26.0f, col_shadow, 24);
-        // Knob main
-        dl->AddCircleFilled(ImVec2(kx, ky), 24.0f, col_stick_knob, 24);
-        // Knob inner highlight
-        dl->AddCircleFilled(ImVec2(kx - 3, ky - 4), 14.0f, col_stick_knob_inner, 24);
-        // Knob ring
-        dl->AddCircle(ImVec2(kx, ky), 24.0f, IM_COL32(120, 120, 130, 200), 24, 1.5f);
-
-        // Right stick knob
-        kx = rcx + state.right_x * stick_R * 0.85f;
-        ky = rcy - state.right_y * stick_R * 0.85f;
-        dl->AddCircleFilled(ImVec2(kx + 1, ky + 2), 26.0f, col_shadow, 24);
-        dl->AddCircleFilled(ImVec2(kx, ky), 24.0f, col_stick_knob, 24);
-        dl->AddCircleFilled(ImVec2(kx - 3, ky - 4), 14.0f, col_stick_knob_inner, 24);
-        dl->AddCircle(ImVec2(kx, ky), 24.0f, IM_COL32(120, 120, 130, 200), 24, 1.5f);
-    }
+    // Face buttons: A bottom (green), B right (red), X left (blue), Y top (yellow).
+    const float fg = L.face_r * L.face_gap;
+    face_button({L.face.x, L.face.y - fg}, L.face_r, col_Y, col_Yp, "Y", state.y);
+    face_button({L.face.x + fg, L.face.y}, L.face_r, col_B, col_Bp, "B", state.b);
+    face_button({L.face.x, L.face.y + fg}, L.face_r, col_A, col_Ap, "A", state.a);
+    face_button({L.face.x - fg, L.face.y}, L.face_r, col_X, col_Xp, "X", state.x);
 }
 
 void MenuSystem::DrawButton(const std::string& label, float width) {

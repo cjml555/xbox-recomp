@@ -62,6 +62,29 @@ struct GamepadState {
     float right_motor = 0.0f;
 };
 
+// Single source of truth for the virtual pad geometry. Both HitTest() and
+// MenuSystem::RenderVirtualGamepad() use this so drawn controls and touch
+// zones can never drift apart. Coordinates are surface pixels.
+struct VirtualPadLayout {
+    struct Point { float x = 0.0f, y = 0.0f; };
+    Point left_stick, right_stick, face, dpad, lt, rt, lb, rb, guide, view, menu;
+
+    float stick_r = 96.0f;        // drawn base radius
+    float stick_hit_r = 112.0f;   // touch radius
+    float face_r = 62.0f;         // face button radius
+    float face_gap = 2.1f;        // multiplier of face_r
+    float dpad_r = 44.0f;         // arm half-size
+    float dpad_gap = 2.05f;       // multiplier of dpad_r
+    float dpad_hit_r = 34.0f;
+    float trigger_w = 130.0f, trigger_h = 62.0f;
+    float bumper_w = 140.0f, bumper_h = 54.0f;
+    float guide_r = 34.0f;
+    float vm_w = 84.0f, vm_h = 44.0f;
+
+    // Build for a given surface size, scaled from the 2400x1080 design.
+    static VirtualPadLayout Make(int width, int height);
+};
+
 // Logical control zones on the virtual gamepad (in surface-pixel space).
 enum class VirtualZone {
     None,
@@ -108,8 +131,9 @@ public:
 
     // Control geometry (surface pixels) — used by menu to draw + map touches.
     void SetDisplaySize(int w, int h);
+    VirtualPadLayout GetLayout() const { return VirtualPadLayout::Make(m_display_width, m_display_height); }
     VirtualZone HitTest(float x, float y) const;
-    static float GetStickRadius() { return 90.0f; }
+    static float GetStickRadius() { return 96.0f; }
 
     // Keyboard mapping to virtual gamepad
     bool IsPressed(SDL_Scancode key) const;
