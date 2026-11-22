@@ -6,6 +6,7 @@
 #include <android/log.h>
 #include <SDL3/SDL.h>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -151,11 +152,19 @@ private:
     bool m_virtual_gamepad_visible = false;
 
     std::array<VirtualTouch, 8> m_touches;
+    // A tap is shorter than the guest's input polling interval (~300 ms under
+    // load). Keep latching buttons down for at least this long after lift.
+    static constexpr int64_t kMinPressMs = 300;
+    static constexpr size_t kZoneCount = static_cast<size_t>(VirtualZone::DPadRight) + 1;
+    std::array<int64_t, kZoneCount> m_release_at_ms{};
+    static int64_t NowMs();
+
     int m_display_width = 0;
     int m_display_height = 0;
 
     void UpdatePhysicalState(SDL_Gamepad* gamepad, GamepadState& state);
     void UpdateVirtualState();
+    void FlushExpiredReleases();
     void ClearState();
 };
 

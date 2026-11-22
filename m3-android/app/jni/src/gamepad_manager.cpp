@@ -35,6 +35,7 @@ void GamepadManager::SetDisplaySize(int w, int h) {
 
 void GamepadManager::Update() {
     ClearState();
+    FlushExpiredReleases();
     static int ucount = 0;
     if (++ucount % 30 == 0)
       __android_log_print(ANDROID_LOG_INFO, "MCLA_UPDATE", "Update #%d", ucount);
@@ -59,6 +60,33 @@ void GamepadManager::Update() {
     }
 }
 
+static bool IsLatchZone(VirtualZone z);
+static bool SetZoneButton(GamepadState& s, VirtualZone z, bool on);
+
+int64_t GamepadManager::NowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void GamepadManager::FlushExpiredReleases() {
+    const int64_t now = NowMs();
+    for (size_t i = 0; i < kZoneCount; ++i) {
+        int64_t& deadline = m_release_at_ms[i];
+        if (!deadline || now < deadline) continue;
+        bool still_held = false;
+        for (const auto& t : m_touches) {
+            if (t.down && static_cast<size_t>(t.zone) == i) {
+                still_held = true;
+                break;
+            }
+        }
+        if (!still_held) {
+            SetZoneButton(m_current_state, static_cast<VirtualZone>(i), false);
+        }
+        deadline = 0;
+    }
+}
+
 void GamepadManager::ClearState() {
     // Only clear the per-frame recomputed analog/directional inputs. Button
     // states are latched persistently by FeedTouch so the guest always sees a
@@ -74,6 +102,10 @@ void GamepadManager::ClearState() {
     m_current_state.dpad_y = 0;
     m_current_state.type = GamepadType::Unknown;
     m_current_state.connected = false;
+}
+
+static bool IsLatchZone(VirtualZone z) {
+    return z >= VirtualZone::A && z <= VirtualZone::Menu;
 }
 
 // Map a virtual zone to its persistent button flag and set it on/off. Returns
@@ -115,23 +147,37 @@ void GamepadManager::FeedTouch(int pointer_id, bool down, float x, float y) {
 
     if (down) {
         // Releasing any button this slot previously owned, in case it moved.
-        if (t.zone != VirtualZone::None)
-            SetZoneButton(m_current_state, t.zone, false);
+        if (t.zone != VirtualZone::None) {
+            if (IsLatchZone(t.zone)) {
+                int64_t& prev_deadline = m_release_at_ms[static_cast<size_t>(t.zone)];
+                if (!prev_deadline) prev_deadline = NowMs() + kMinPressMs;
+            } else {
+                SetZoneButton(m_current_state, t.zone, false);
+            }
+        }
         t.pointer_id = pointer_id;
         t.x = x;
         t.y = y;
         t.down = true;
         VirtualZone z = HitTest(x, y);
         t.zone = z;
+        if (IsLatchZone(z)) {
+            m_release_at_ms[static_cast<size_t>(z)] = 0;  // cancel a pending auto-release
+        }
         if (z != VirtualZone::None && z != VirtualZone::LeftStick && z != VirtualZone::RightStick)
             __android_log_print(ANDROID_LOG_INFO, "MCLA_TOUCH",
                                 "down zone=%d t=(%.0f,%.0f)", (int)z, x, y);
         // Latch the button immediately — persists until this pointer lifts.
         SetZoneButton(m_current_state, z, true);
     } else {
-        // Lift: release the button this slot owned.
-        if (t.zone != VirtualZone::None)
+        // Lift: keep latching buttons down for at least kMinPressMs so the
+        // guest (which polls slowly under load) cannot miss a quick tap.
+        if (IsLatchZone(t.zone)) {
+            int64_t& deadline = m_release_at_ms[static_cast<size_t>(t.zone)];
+            if (!deadline) deadline = NowMs() + kMinPressMs;
+        } else if (t.zone != VirtualZone::None) {
             SetZoneButton(m_current_state, t.zone, false);
+        }
         t.pointer_id = -1;
         t.x = 0.f; t.y = 0.f;
         t.down = false;
