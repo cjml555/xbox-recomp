@@ -75,6 +75,7 @@ bool Config::Save(const std::string& path) {
         j["active_mods"] = active_mods;
         
         // Development
+        j["frame_step_cap_ms"] = frame_step_cap_ms;
         j["dev_mode"] = dev_mode;
         j["show_fps"] = show_fps;
         j["show_debug_info"] = show_debug_info;
@@ -160,6 +161,11 @@ bool Config::Load(const std::string& path) {
         active_mods = j.value("active_mods", active_mods);
         
         dev_mode = j.value("dev_mode", dev_mode);
+        frame_step_cap_ms = j.value("frame_step_cap_ms", frame_step_cap_ms);
+        if (!std::isfinite(frame_step_cap_ms) || frame_step_cap_ms < 50.0f ||
+            frame_step_cap_ms > 500.0f) {
+            frame_step_cap_ms = 125.0f;
+        }
         show_fps = j.value("show_fps", show_fps);
         show_debug_info = j.value("show_debug_info", show_debug_info);
 

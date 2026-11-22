@@ -4,6 +4,7 @@
 // Real implementations ported from LARecomp/mcla-recomp reference source
 
 #include "game_hooks.h"
+#include "config.h"
 #include "guest_memory.h"
 #include <SDL3/SDL.h>
 #include <rex/runtime.h>
@@ -1498,10 +1499,14 @@ static double GuestTicksPerMs() {
     return per_ms;
 }
 
-// The step cap in guest ticks for one frame's delta (the hitch clamp). 125 ms was
-// the reference's ceiling; a stall longer than this is played in slow motion instead
-// of jumping the world forward (the chase camera can't cope with a giant step).
-static constexpr double kStepCapMs = 125.0;
+// The step cap for one frame's delta (the hitch clamp). 125 ms was the reference's
+// ceiling; a stall longer than this is played in slow motion instead of jumping
+// the world forward. When the recompiler cannot sustain a short frame the world
+// runs permanently slow, so the ceiling is tunable (config.json, 50..500 ms).
+static double StepCapMs() {
+    const double cap = static_cast<double>(mcla::GetConfig().frame_step_cap_ms);
+    return cap > 0.0 ? cap : 125.0;
+}
 
 // Host-side frame limiter: holds the game thread to the fps limit (60 by default)
 // by sleeping to the deadline. Mirrors the reference's EnforceFrameLimit in the
@@ -1541,10 +1546,10 @@ static void EnforceFrameLimit() {
 void MCLAFrameDelta(rex::ppc::Register& r8) {
     // The hitch clamp runs unconditionally: it is the last line of defence against an
     // unbounded delta reaching the physics and audio clocks after a streaming stall.
-    const uint64_t cap = static_cast<uint64_t>(kStepCapMs * GuestTicksPerMs());
+    const uint64_t cap = static_cast<uint64_t>(StepCapMs() * GuestTicksPerMs());
     if (r8.u64 > cap) {
         SDL_Log("[MCLA_Timing] frame step capped: %.1f ms -> %.1f ms",
-                static_cast<double>(r8.u64) / GuestTicksPerMs(), kStepCapMs);
+                static_cast<double>(r8.u64) / GuestTicksPerMs(), StepCapMs());
         r8.u64 = cap;
     }
     // 60 FPS pacing on the game thread (with real_frame_delta the simulation is fed

@@ -111,6 +111,10 @@ struct Config {
     std::vector<std::string> active_mods;
 
     // Development
+    // Upper bound (ms) on the simulation step fed to the guest each frame.
+    // Reference default is 125; raise it when the recompiler cannot sustain a
+    // short frame, otherwise the world runs in slow motion.
+    float frame_step_cap_ms = 125.0f;
     bool dev_mode = false;
     bool show_fps = true;
     bool show_debug_info = false;
