@@ -458,33 +458,46 @@ void MenuSystem::RenderMainMenu() {
     ImVec2 displaySize = io.DisplaySize;
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
-    // ── Polished panel dimensions ────────────────────────────────────────
-    const float panelW = 480.0f;
-    const float panelH = 600.0f;
-    const float px = (displaySize.x - panelW) * 0.5f;
-    const float py = (displaySize.y - panelH) * 0.5f;
-    const float pad  = 28.0f;
-    const float br   = 16.0f;           // corner radius
+    // ── Bottom-right panel with large touch targets ─────────────────────
+    constexpr float kItemCount = 7.0f;
+    const float margin = 30.0f;
+    const float panelW = ImMin(640.0f, displaySize.x - margin * 2.0f);
+    const float pad  = 34.0f;
+    const float br   = 18.0f;
 
-    // ── Backdrop: darken everything outside panel ────────────────────────
+    const float title_size = ImMin(30.0f, panelW / 18.0f);
+    const float title_line = title_size + 10.0f;
+    const float title_top  = 46.0f;
+    const float btn_top    = title_top + title_line * 2.0f + 26.0f;
+    const float version_h  = 36.0f;
+    const float gap        = 14.0f;
+    // Only shrink buttons on displays too short for the full layout.
+    const float avail_h = displaySize.y - margin * 2.0f - btn_top - version_h;
+    const float btnH = ImMax(36.0f, ImMin(74.0f,
+                         (avail_h - (kItemCount - 1.0f) * gap) / kItemCount));
+    const float panelH = btn_top + kItemCount * btnH + (kItemCount - 1.0f) * gap + version_h;
+    const float px = displaySize.x - panelW - margin;   // right edge
+    const float py = displaySize.y - panelH - margin;   // bottom edge
+
+    // ── Backdrop: keep the car art clearly visible (light scrim only) ───
     if (m_backdrop_texture) {
         dl->AddImage(m_backdrop_texture, ImVec2(0, 0), displaySize,
                      ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 255));
     }
-    dl->AddRectFilled(ImVec2(0, 0), displaySize, IM_COL32(0, 0, 0, 200), 0);
+    dl->AddRectFilled(ImVec2(0, 0), displaySize, IM_COL32(0, 0, 0, 80), 0);
     // Panel shadow
-    dl->AddRectFilled(ImVec2(px + 4, py + 6), ImVec2(px + panelW + 4, py + panelH + 6),
+    dl->AddRectFilled(ImVec2(px + 6, py + 8), ImVec2(px + panelW + 6, py + panelH + 8),
                       IM_COL32(0, 0, 0, 140), br + 2);
     // Panel background (dark glass)
     dl->AddRectFilled(ImVec2(px, py), ImVec2(px + panelW, py + panelH),
-                      IM_COL32(14, 14, 20, 245), br);
+                      IM_COL32(14, 14, 20, 235), br);
     // Subtle top-edge highlight
     dl->AddLine(ImVec2(px + br, py), ImVec2(px + panelW - br, py),
-                IM_COL32(120, 130, 160, 80), 1.5f);
+                IM_COL32(120, 130, 160, 90), 2.0f);
 
     // ── Title ────────────────────────────────────────────────────────────
     const float titleX = px + panelW * 0.5f;
-    const float titleY = py + 40.0f;
+    const float titleY = py + title_top;
     {
         static const char* sub[] = {"MIDNIGHT CLUB:", "LOS ANGELES"};
         static const ImVec4 col[] = {{0.2f, 1.0f, 1.0f, 1.0f},
@@ -492,9 +505,9 @@ void MenuSystem::RenderMainMenu() {
         int idx = 0;
         for (auto txt : sub) {
             ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
-            ImVec2 ts = font ? font->CalcTextSizeA(22, 9999, -1.0f, txt)
-                             : ImVec2(strlen(txt) * 13, 22);
-            dl->AddText(font, 22, ImVec2(titleX - ts.x * 0.5f, titleY + idx * 30),
+            ImVec2 ts = font ? font->CalcTextSizeA(title_size, 9999, -1.0f, txt)
+                             : ImVec2(strlen(txt) * title_size * 0.6f, title_size);
+            dl->AddText(font, title_size, ImVec2(titleX - ts.x * 0.5f, titleY + idx * title_line),
                         IM_COL32((int)(col[idx].x*255),(int)(col[idx].y*255),(int)(col[idx].z*255),255), txt);
             idx++;
         }
@@ -517,8 +530,7 @@ void MenuSystem::RenderMainMenu() {
 
     const int N = sizeof(items) / sizeof(items[0]);
     const float btnW = panelW - pad * 2.0f;
-    const float btnH = 52.0f;
-    const float gap  = 12.0f;
+    const float label_size = ImMin(26.0f, btnH * 0.40f);
     const ImVec4 col_text    = ImVec4(0.92f, 0.92f, 0.95f, 1.0f);
     const ImVec4 col_dim     = ImVec4(0.55f, 0.55f, 0.60f, 1.0f);
     const ImU32  col_btn_n   = IM_COL32(32,  32,  42,  230);
@@ -527,7 +539,7 @@ void MenuSystem::RenderMainMenu() {
     const ImU32  col_border  = IM_COL32(80,  85,  100, 180);
     const ImU32  col_border_h= IM_COL32(140, 150, 180, 220);
 
-    float curY = py + 110.0f;
+    float curY = py + btn_top;
 
     // Pre-calc hover rect each frame so we know which item is hovered.
     ImVec2 mouse = io.MousePos;
@@ -549,24 +561,24 @@ void MenuSystem::RenderMainMenu() {
 
         // Button bg
         ImU32 bg = pressed ? col_btn_h : (hovered ? col_btn_h : col_btn_n);
-        dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + btnW, by + btnH), bg, 10);
+        dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + btnW, by + btnH), bg, 14.0f);
 
         // Left accent bar (green for JUGAR, subtle for others)
         ImU32 accent_col = (items[i].label[0] == 'J') ? col_accent : col_border;
         if (hovered) accent_col = col_border_h;
-        dl->AddRectFilled(ImVec2(bx, by + 6), ImVec2(bx + 4, by + btnH - 6), accent_col, 2);
+        dl->AddRectFilled(ImVec2(bx, by + 10), ImVec2(bx + 7, by + btnH - 10), accent_col, 3);
 
         // Border
         dl->AddRect(ImVec2(bx, by), ImVec2(bx + btnW, by + btnH),
                     hovered ? col_border_h : IM_COL32(20, 20, 28, 120),
-                    10, 0, 1.0f);
+                    14.0f, 0, 1.5f);
 
         // Label
         ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
-        ImVec2 ts = font ? font->CalcTextSizeA(18, 9999, -1.0f, items[i].label)
-                         : ImVec2(strlen(items[i].label) * 11, 18);
+        ImVec2 ts = font ? font->CalcTextSizeA(label_size, 9999, -1.0f, items[i].label)
+                         : ImVec2(strlen(items[i].label) * label_size * 0.6f, label_size);
         ImVec4 lblCol = pressed ? col_dim : col_text;
-        dl->AddText(font, 18, ImVec2(bx + 18, by + (btnH - ts.y) * 0.5f),
+        dl->AddText(font, label_size, ImVec2(bx + 28, by + (btnH - ts.y) * 0.5f),
                     IM_COL32((int)(lblCol.x*255),(int)(lblCol.y*255),(int)(lblCol.z*255),255),
                     items[i].label);
 
@@ -580,10 +592,11 @@ void MenuSystem::RenderMainMenu() {
     {
         ImFont* font = io.Fonts->Fonts.Size > 0 ? io.Fonts->Fonts[0] : nullptr;
         const char* ver = "v0.1.0 — MCLA Android Recompilation";
-        ImVec2 vs = font ? font->CalcTextSizeA(13, 9999, -1.0f, ver)
-                         : ImVec2(strlen(ver) * 8, 13);
-        dl->AddText(font, 13, ImVec2(px + (panelW - vs.x) * 0.5f, py + panelH - 28),
-                    IM_COL32(100, 100, 115, 180), ver);
+        const float ver_size = 16.0f;
+        ImVec2 vs = font ? font->CalcTextSizeA(ver_size, 9999, -1.0f, ver)
+                         : ImVec2(strlen(ver) * ver_size * 0.6f, ver_size);
+        dl->AddText(font, ver_size, ImVec2(px + (panelW - vs.x) * 0.5f, py + panelH - 30),
+                    IM_COL32(110, 110, 125, 200), ver);
     }
 }
 
