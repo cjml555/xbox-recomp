@@ -657,8 +657,13 @@ Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
         LOGI("nativeOnTouchEvent action=%d x=%.1f y=%.1f pid=%d", (int)action, (double)x, (double)y, (int)pointerId);
     }
 
-    // Feed touch to virtual gamepad (surface-pixel coords)
-    mcla::GetGamepadManager().FeedTouch((int)pointerId, is_down, x, y);
+    // A rightward swipe from the left edge opens the in-game pad settings.
+    // Those touches (and every touch while the drawer is open) belong to the
+    // ImGui panel, not to the virtual controller.
+    const bool swipe_consumed = mcla::GetMenus().HandleEdgeSwipe((int)action, x, y);
+    if (!swipe_consumed && !mcla::GetMenus().IsPadSettingsOpen()) {
+        mcla::GetGamepadManager().FeedTouch((int)pointerId, is_down, x, y);
+    }
 
     // Map surface-pixel coords into the Vulkan render-target's local space
     // so that ImGui hit-testing aligns with what the immediate drawer presents.

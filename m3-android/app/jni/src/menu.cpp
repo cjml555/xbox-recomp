@@ -203,6 +203,7 @@ void MenuSystem::Draw(rex::ui::UIDrawContext& ui_draw_context) {
     // the virtual pad) so position/size changes are visible live while editing.
     if (m_game_running.load()) {
         RenderVirtualGamepad();
+        if (m_pad_settings_open) RenderPadSettings();
     } else {
         switch (m_current_state) {
             case MenuState::MainMenu: RenderMainMenu(); break;
@@ -286,6 +287,48 @@ void MenuSystem::NavigateBack() {
 
 void MenuSystem::GoToMain() {
     SwitchToState(MenuState::MainMenu);
+}
+
+bool MenuSystem::HandleEdgeSwipe(int action, float x, float y) {
+    if (!m_game_running.load()) return false;
+
+    // action: 0 = DOWN, 1 = UP, 2 = MOVE (Android AMOTION_EVENT_*).
+    if (action == 0) {
+        if (m_pad_settings_open) return false;
+        if (x <= 70.0f) {
+            m_swipe_tracking = true;
+            m_swipe_start_x = x;
+            m_swipe_start_y = y;
+            m_swipe_max_x = x;
+            m_swipe_start_ms = SDL_GetTicks();
+            return true;
+        }
+        m_swipe_tracking = false;
+        return false;
+    }
+
+    if (!m_swipe_tracking) return false;
+
+    if (action == 2) {
+        if (x > m_swipe_max_x) m_swipe_max_x = x;
+        if (SDL_GetTicks() - m_swipe_start_ms > 2000) {
+            m_swipe_tracking = false;
+            return false;
+        }
+        if (m_swipe_max_x - m_swipe_start_x >= 220.0f) {
+            m_pad_settings_open = true;
+            m_swipe_tracking = false;
+            LOGI("Pad settings opened by edge swipe from (%.0f, %.0f) to (%.0f, %.0f)",
+                 (double)m_swipe_start_x, (double)m_swipe_start_y, (double)x, (double)y);
+        }
+        return true;
+    }
+
+    if (action == 1) {  // lift without completing the gesture
+        m_swipe_tracking = false;
+        return false;
+    }
+    return false;
 }
 
 void MenuSystem::HandleEvent(const SDL_Event* event) {
@@ -1135,6 +1178,65 @@ static std::pair<long, long> ReadMemInfo() {
         }
     }
     return result;
+}
+
+void MenuSystem::RenderPadSettings() {
+    Config& cfg = GetConfig();
+    // Large, high-contrast drawer: 1.6x font and generous spacing so the
+    // controls are readable at arm's length on a 2400x1080 phone screen.
+    ImGui::SetNextWindowPos(ImVec2(30.0f, 55.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(1000.0f, 970.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(22.0f, 22.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(14.0f, 14.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f, 10.0f));
+    if (!ImGui::Begin("Mando virtual", &m_pad_settings_open, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        ImGui::PopStyleVar(3);
+        return;
+    }
+    ImGui::SetWindowFontScale(1.6f);
+
+    ImGui::TextColored(ImVec4(0.35f, 0.85f, 1.0f, 1.0f), "Ajustes del mando — vista previa en vivo");
+    ImGui::Checkbox("Mostrar mando virtual", &cfg.virtual_gamepad_enabled);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Tamaño");
+    ImGui::SliderFloat("Botones A/B/X/Y", &cfg.pad.face_scale, 0.6f, 1.8f, "%.2fx");
+    ImGui::SliderFloat("Joysticks", &cfg.pad.stick_scale, 0.6f, 1.8f, "%.2fx");
+    ImGui::SliderFloat("Cruceta D-pad", &cfg.pad.dpad_scale, 0.6f, 1.8f, "%.2fx");
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Ubicación (desplazamiento en píxeles)");
+    ImGui::SliderFloat("Botones X", &cfg.pad.face_x, -500.0f, 500.0f, "%.0f px");
+    ImGui::SliderFloat("Botones Y", &cfg.pad.face_y, -500.0f, 500.0f, "%.0f px");
+    ImGui::SliderFloat("Stick izq. X", &cfg.pad.stick_left_x, -500.0f, 500.0f, "%.0f px");
+    ImGui::SliderFloat("Stick izq. Y", &cfg.pad.stick_left_y, -500.0f, 500.0f, "%.0f px");
+    ImGui::SliderFloat("Stick der. X", &cfg.pad.stick_right_x, -500.0f, 500.0f, "%.0f px");
+    ImGui::SliderFloat("Stick der. Y", &cfg.pad.stick_right_y, -500.0f, 500.0f, "%.0f px");
+    ImGui::SliderFloat("D-pad X", &cfg.pad.dpad_x, -500.0f, 500.0f, "%.0f px");
+    ImGui::SliderFloat("D-pad Y", &cfg.pad.dpad_y, -500.0f, 500.0f, "%.0f px");
+
+    ImGui::Separator();
+    if (ImGui::Button("Restablecer mando")) {
+        cfg.pad = VirtualPadConfig();
+        LOGI("Pad layout reset");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Guardar")) {
+        cfg.Save();
+        LOGI("Pad layout saved");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cerrar")) {
+        cfg.Save();
+        m_pad_settings_open = false;
+        LOGI("Pad settings closed");
+    }
+    ImGui::TextColored(ImVec4(0.62f, 0.62f, 0.68f, 1.0f),
+                       "Desliza desde el borde izquierdo hacia la derecha para abrir.");
+    ImGui::End();
+    ImGui::PopStyleVar(3);
 }
 
 void MenuSystem::RenderHUD(float fps) {

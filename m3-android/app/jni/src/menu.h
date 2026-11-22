@@ -76,6 +76,12 @@ public:
     // FPS / HUD
     void SetFPS(float fps) { m_fps = fps; }
     float GetFPS() const { return m_fps; }
+
+    // In-game edge-swipe -> virtual pad settings drawer.
+    // Returns true when the touch belongs to the gesture and must not feed
+    // the virtual gamepad.
+    bool HandleEdgeSwipe(int action, float x, float y);
+    bool IsPadSettingsOpen() const { return m_pad_settings_open; }
     void AddFrametimeSample(float ms) { m_ft[m_ft_idx] = ms; m_ft_idx = (m_ft_idx + 1) & (kFtBufSize - 1); }
     // Exit request (from "SALIR" button)
     bool ShouldExit() const { return m_should_exit; }
@@ -115,6 +121,12 @@ private:
     bool m_should_exit = false;
     bool m_game_start_requested = false;
     bool m_virtual_gamepad_visible = false;
+
+    // Edge-swipe drawer: swipe right from the left edge while in game.
+    bool m_pad_settings_open = false;
+    bool m_swipe_tracking = false;
+    float m_swipe_start_x = 0.0f, m_swipe_start_y = 0.0f, m_swipe_max_x = 0.0f;
+    Uint32 m_swipe_start_ms = 0;
     bool m_mouse_down = false;       // Set on DOWN, cleared on pending UP injection
     int m_up_defer_counter = 0;      // Defer-inject the mouse UP after a frame boundary
     int m_display_width = 0;
@@ -172,6 +184,7 @@ private:
     void RenderLANMenu();
     void RenderDevelopmentModeMenu();
     void RenderHudControls();
+    void RenderPadSettings();
     void RenderHUD(float fps);
 
     void RenderVirtualGamepad();

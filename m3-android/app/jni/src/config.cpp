@@ -1,6 +1,8 @@
 // MCLA - Configuration System Implementation
 #include "config.h"
 #include "updater.h"
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 
 namespace mcla {
@@ -48,6 +50,15 @@ bool Config::Save(const std::string& path) {
         j["gamepad_sensitivity"] = gamepad_sensitivity;
         j["vibration_enabled"] = vibration_enabled;
         j["virtual_gamepad_enabled"] = virtual_gamepad_enabled;
+
+        // Virtual pad geometry (edited in-game from the edge-swipe drawer)
+        j["pad_face_scale"] = pad.face_scale;
+        j["pad_stick_scale"] = pad.stick_scale;
+        j["pad_dpad_scale"] = pad.dpad_scale;
+        j["pad_face_x"] = pad.face_x;   j["pad_face_y"] = pad.face_y;
+        j["pad_stick_left_x"] = pad.stick_left_x;   j["pad_stick_left_y"] = pad.stick_left_y;
+        j["pad_stick_right_x"] = pad.stick_right_x; j["pad_stick_right_y"] = pad.stick_right_y;
+        j["pad_dpad_x"] = pad.dpad_x;   j["pad_dpad_y"] = pad.dpad_y;
         
         // Language
         j["language"] = static_cast<int>(language);
@@ -122,6 +133,22 @@ bool Config::Load(const std::string& path) {
         gamepad_sensitivity = j.value("gamepad_sensitivity", gamepad_sensitivity);
         vibration_enabled = j.value("vibration_enabled", vibration_enabled);
         virtual_gamepad_enabled = j.value("virtual_gamepad_enabled", virtual_gamepad_enabled);
+
+        // A hand-edited or stale config must not push controls off-screen.
+        auto clampf = [](float v, float lo, float hi, float fallback) {
+            return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
+        };
+        pad.face_scale  = clampf(j.value("pad_face_scale", pad.face_scale), 0.6f, 1.8f, 1.0f);
+        pad.stick_scale = clampf(j.value("pad_stick_scale", pad.stick_scale), 0.6f, 1.8f, 1.0f);
+        pad.dpad_scale  = clampf(j.value("pad_dpad_scale", pad.dpad_scale), 0.6f, 1.8f, 1.0f);
+        pad.face_x       = clampf(j.value("pad_face_x", pad.face_x), -600.f, 600.f, 0.f);
+        pad.face_y       = clampf(j.value("pad_face_y", pad.face_y), -600.f, 600.f, 0.f);
+        pad.stick_left_x = clampf(j.value("pad_stick_left_x", pad.stick_left_x), -600.f, 600.f, 0.f);
+        pad.stick_left_y = clampf(j.value("pad_stick_left_y", pad.stick_left_y), -600.f, 600.f, 0.f);
+        pad.stick_right_x = clampf(j.value("pad_stick_right_x", pad.stick_right_x), -600.f, 600.f, 0.f);
+        pad.stick_right_y = clampf(j.value("pad_stick_right_y", pad.stick_right_y), -600.f, 600.f, 0.f);
+        pad.dpad_x       = clampf(j.value("pad_dpad_x", pad.dpad_x), -600.f, 600.f, 0.f);
+        pad.dpad_y       = clampf(j.value("pad_dpad_y", pad.dpad_y), -600.f, 600.f, 0.f);
         
         language = static_cast<Language>(j.value("language", static_cast<int>(language)));
         

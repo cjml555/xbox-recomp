@@ -17,6 +17,8 @@
 
 namespace mcla {
 
+struct VirtualPadConfig;
+
 using rex::X_RESULT;
 using rex::X_STATUS;
 
@@ -81,7 +83,9 @@ struct VirtualPadLayout {
     float guide_r = 34.0f;
     float vm_w = 84.0f, vm_h = 44.0f;
 
-    // Build for a given surface size, scaled from the 2400x1080 design.
+    // Build for a given surface size, scaled from the 2400x1080 design and
+    // with the user's live size/position overrides applied.
+    static VirtualPadLayout Make(int width, int height, const VirtualPadConfig& cfg);
     static VirtualPadLayout Make(int width, int height);
 };
 
@@ -131,7 +135,7 @@ public:
 
     // Control geometry (surface pixels) — used by menu to draw + map touches.
     void SetDisplaySize(int w, int h);
-    VirtualPadLayout GetLayout() const { return VirtualPadLayout::Make(m_display_width, m_display_height); }
+    VirtualPadLayout GetLayout() const;
     VirtualZone HitTest(float x, float y) const;
     static float GetStickRadius() { return 96.0f; }
 

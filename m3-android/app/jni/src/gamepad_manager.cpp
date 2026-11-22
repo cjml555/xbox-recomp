@@ -1,5 +1,6 @@
 // MCLA - Gamepad Manager Implementation
 #include "gamepad_manager.h"
+#include "config.h"
 #include <SDL3/SDL_events.h>
 #include <android/log.h>
 #include <algorithm>
@@ -139,14 +140,26 @@ void GamepadManager::FeedTouch(int pointer_id, bool down, float x, float y) {
 }
 
 VirtualPadLayout VirtualPadLayout::Make(int width, int height) {
+    const VirtualPadConfig defaults;
+    return Make(width, height, defaults);
+}
+
+VirtualPadLayout VirtualPadLayout::Make(int width, int height, const VirtualPadConfig& cfg) {
     VirtualPadLayout L;
     const float w = width  > 0 ? static_cast<float>(width)  : 2400.0f;
     const float h = height > 0 ? static_cast<float>(height) : 1080.0f;
     const float k = std::clamp(std::min(w / 2400.0f, h / 1080.0f), 0.65f, 1.30f);
 
-    L.stick_r = 96.0f * k;      L.stick_hit_r = 112.0f * k;
-    L.face_r  = 62.0f * k;      L.face_gap = 2.10f;
-    L.dpad_r  = 44.0f * k;      L.dpad_gap = 2.05f; L.dpad_hit_r = 34.0f * k;
+    // Clamp again here so the draw and hit-test are safe even for config
+    // written by an older build or edited by hand on the device.
+    const auto scale = [](float v) { return std::clamp(v, 0.6f, 1.8f); };
+    L.stick_r = 96.0f * k * scale(cfg.stick_scale);
+    L.stick_hit_r = L.stick_r * (112.0f / 96.0f);
+    L.face_r  = 62.0f * k * scale(cfg.face_scale);
+    L.face_gap = 2.10f;
+    L.dpad_r  = 44.0f * k * scale(cfg.dpad_scale);
+    L.dpad_gap = 2.05f;
+    L.dpad_hit_r = L.dpad_r * (34.0f / 44.0f);
     L.trigger_w = 130.0f * k;   L.trigger_h = 62.0f * k;
     L.bumper_w  = 140.0f * k;   L.bumper_h  = 54.0f * k;
     L.guide_r   = 34.0f * k;
@@ -167,7 +180,18 @@ VirtualPadLayout VirtualPadLayout::Make(int width, int height) {
     L.right_stick = {w * 0.80f, h * 0.72f};
     L.face        = {w * 0.90f, h * 0.52f};
     L.dpad        = {w * 0.18f, L.left_stick.y + L.stick_r + 100.0f * k};
+
+    // User offsets are applied last and equally to drawing and hit-testing.
+    const auto off = [](float v) { return std::clamp(v, -600.0f, 600.0f); };
+    L.left_stick.x  += off(cfg.stick_left_x);  L.left_stick.y  += off(cfg.stick_left_y);
+    L.right_stick.x += off(cfg.stick_right_x); L.right_stick.y += off(cfg.stick_right_y);
+    L.face.x += off(cfg.face_x);               L.face.y += off(cfg.face_y);
+    L.dpad.x += off(cfg.dpad_x);               L.dpad.y += off(cfg.dpad_y);
     return L;
+}
+
+VirtualPadLayout GamepadManager::GetLayout() const {
+    return VirtualPadLayout::Make(m_display_width, m_display_height, GetConfig().pad);
 }
 
 VirtualZone GamepadManager::HitTest(float sx, float sy) const {

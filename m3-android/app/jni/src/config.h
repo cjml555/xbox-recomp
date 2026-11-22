@@ -14,6 +14,18 @@
 
 namespace mcla {
 
+// User-tunable geometry for the virtual pad. All sizes are multipliers of the
+// design radii; offsets are raw surface pixels added inward/right/down.
+struct VirtualPadConfig {
+    float face_scale  = 1.0f;
+    float stick_scale = 1.0f;
+    float dpad_scale  = 1.0f;
+    float face_x = 0.0f, face_y = 0.0f;
+    float stick_left_x = 0.0f, stick_left_y = 0.0f;
+    float stick_right_x = 0.0f, stick_right_y = 0.0f;
+    float dpad_x = 0.0f, dpad_y = 0.0f;
+};
+
 enum class RendererType : uint8_t {
     XeniaBased = 0,   // Xenia-style recompiled renderer
     NativeVulkan = 1, // Native Vulkan renderer
@@ -82,6 +94,7 @@ struct Config {
     float gamepad_sensitivity = 1.0f;
     bool vibration_enabled = true;
     bool virtual_gamepad_enabled = true;
+    VirtualPadConfig pad;   // virtual pad size/position, edited in-game
 
     // Language
     Language language = Language::English;
