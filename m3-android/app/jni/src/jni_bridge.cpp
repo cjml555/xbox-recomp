@@ -301,6 +301,15 @@ void gameThreadMain(std::string assets_dir, std::string files_dir, std::string c
     // GPU cache rejects them by default and spams a validation warning per draw
     // (50k+ logcat lines/min). LARecomp enables this flag by default — mirror it.
     rex::cvar::SetFlagByName("gpu_allow_invalid_fetch_constants", "true");
+
+    // rex::SetAllLevels(trace) below makes every gpu_logger->should_log() check
+    // pass, so the SDK creates the debug-utils messenger with all severities and
+    // all message types. The Android driver emits an empty ID-0 message with an
+    // invalid severity every frame; formatting it with vk::to_string and writing
+    // 100+ logcat lines/s burns CPU on the render thread and hides real errors.
+    // Real Vulkan failures still surface via REXLOG_ERROR at the call sites.
+    rex::cvar::SetFlagByName("vulkan_log_debug_messages", "false");
+
     config.graphics = nullptr;
     if (!g_native_library_dir.empty()) {
         std::string plugin_path = g_native_library_dir + "/librexgpu-xenos.so";

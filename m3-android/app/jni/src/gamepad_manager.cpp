@@ -169,10 +169,12 @@ void GamepadManager::FeedTouch(int pointer_id, bool down, float x, float y) {
                                 "down zone=%d t=(%.0f,%.0f)", (int)z, x, y);
         // Latch the button immediately — persists until this pointer lifts.
         SetZoneButton(m_current_state, z, true);
+        QueueKey(z, true);
     } else {
         // Lift: keep latching buttons down for at least kMinPressMs so the
         // guest (which polls slowly under load) cannot miss a quick tap.
         if (IsLatchZone(t.zone)) {
+            QueueKey(t.zone, false);
             int64_t& deadline = m_release_at_ms[static_cast<size_t>(t.zone)];
             if (!deadline) deadline = NowMs() + kMinPressMs;
         } else if (t.zone != VirtualZone::None) {
@@ -290,6 +292,35 @@ VirtualZone GamepadManager::HitTest(float sx, float sy) const {
     if (in_rect(sx, sy, L.menu, L.vm_w, L.vm_h)) return VirtualZone::Menu;
 
     return VirtualZone::None;
+}
+
+static uint16_t ZoneVirtualKey(VirtualZone z) {
+    switch (z) {
+        case VirtualZone::A: return 0x5800;
+        case VirtualZone::B: return 0x5801;
+        case VirtualZone::X: return 0x5802;
+        case VirtualZone::Y: return 0x5803;
+        case VirtualZone::Menu: return 0x5814;
+        case VirtualZone::View: return 0x5815;
+        case VirtualZone::Guide: return 0x5805;
+        case VirtualZone::DPadUp: return 0x5810;
+        case VirtualZone::DPadDown: return 0x5811;
+        case VirtualZone::DPadLeft: return 0x5812;
+        case VirtualZone::DPadRight: return 0x5813;
+        default: return 0;
+    }
+}
+
+void GamepadManager::QueueKey(VirtualZone zone, bool down) {
+    const uint16_t vk = ZoneVirtualKey(zone);
+    if (vk && m_pending_keys.size() < 64) m_pending_keys.push_back({vk, down});
+}
+
+bool GamepadManager::PopKey(PendingKey& out) {
+    if (m_pending_keys.empty()) return false;
+    out = m_pending_keys.front();
+    m_pending_keys.pop_front();
+    return true;
 }
 
 void GamepadManager::UpdateVirtualState() {

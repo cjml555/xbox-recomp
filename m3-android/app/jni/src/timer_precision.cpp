@@ -78,8 +78,10 @@ void MCLATimeAccumTotal(rex::ppc::Register& r3, rex::ppc::Register& f0) {
     const double clock_s = static_cast<double>(g_total_time.published);
     if (last_host_ms && (host_ms - last_host_ms) >= 1000) {
         const double world_ms = (clock_s - last_clock_s) * 1000.0;
+        const double elapsed_host_ms = double(host_ms - last_host_ms);
+        const double world_ms_per_host_second = world_ms * 1000.0 / elapsed_host_ms;
         SDL_Log("[MCLA_Timing] world clock advance = %.0f ms per 1000 host ms (%.0f%%)",
-                world_ms, 100.0 * world_ms / double(host_ms - last_host_ms));
+                world_ms_per_host_second, 100.0 * world_ms / elapsed_host_ms);
         last_host_ms = host_ms;
         last_clock_s = clock_s;
     } else if (!last_host_ms) {

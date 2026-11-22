@@ -12,6 +12,7 @@
 #include <atomic>
 #include <mutex>
 #include <chrono>
+#include <sys/resource.h>
 #include <thread>
 #include <unordered_set>
 #include <string>
@@ -29,6 +30,82 @@ static void LogStubOnce(const char* name) {
 }
 
 namespace mcla {
+
+// Log only the indirect call target from the XAudio callback body. No guest
+// memory is dereferenced here.
+extern "C" void __imp__rex_sub_823ECA40(PPCContext& ctx, uint8_t* base);
+extern "C" void rex_sub_823ECA40(PPCContext& ctx, uint8_t* base) {
+    static uint32_t n = 0;
+    if (++n <= 4) SDL_Log("[MCLA_AudioTrace] ec40 call #%u", n);
+    __imp__rex_sub_823ECA40(ctx, base);
+    if (n <= 4) SDL_Log("[MCLA_AudioTrace] ec40 indirect=0x%08X",
+                        static_cast<uint32_t>(ctx.last_indirect_target));
+}
+
+extern "C" void MclaTraceIndirect(uint32_t target) {
+    static uint32_t n = 0;
+    if (++n <= 200 || (n % 10000) == 0)
+        SDL_Log("[MCLA_AudioTrace] indirect target=0x%08X #%u", target, n);
+}
+
+// Log which vtable slot the audio dispatcher selects. The guest calls this
+// hundreds of times per session; previous indirect tracing showed the mixer
+// and kick paths are never reached, so observe the actual dispatch here.
+extern "C" void __imp__Func_823F6EF8(PPCContext& ctx, uint8_t* base);
+extern "C" void Func_823F6EF8(PPCContext& ctx, uint8_t* base) {
+    static uint32_t n = 0;
+    if (++n <= 20 || (n % 100) == 0) {
+        const uint32_t obj = static_cast<uint32_t>(ctx.r3.u64);
+        const uint32_t idx = ctx.r4.u32 & 0xFF;
+        uint32_t vtable = 0, fn = 0;
+        if (mcla::IsGuestPtr(obj)) {
+            vtable = mcla::ReadGuestBE32(obj + 36);
+            if (mcla::IsGuestPtr(vtable)) fn = mcla::ReadGuestBE32(vtable + idx * 8);
+        }
+        SDL_Log("[MCLA_AudioTrace] vdisp #%u obj=0x%08X idx=%u vt=0x%08X fn=0x%08X", n, obj,
+                idx, vtable, fn);
+    }
+    __imp__Func_823F6EF8(ctx, base);
+}
+
+// The guest mixer thread starts at 0x823EC8C8. Log its entry to confirm it
+// exists and is scheduled (LARecomp only has to raise its priority).
+extern "C" void __imp__rex_sub_823EC8C8(PPCContext& ctx, uint8_t* base);
+extern "C" void rex_sub_823EC8C8(PPCContext& ctx, uint8_t* base) {
+    static uint32_t n = 0;
+    if (++n <= 3) {
+        const int rc = setpriority(PRIO_PROCESS, 0, -5);
+        SDL_Log("[MCLA_AudioTrace] mixer thread entered #%u setpriority rc=%d", n, rc);
+    }
+    __imp__rex_sub_823EC8C8(ctx, base);
+}
+
+// Log-only wrappers around the game's XMA voice path (generated functions are
+// weak, so these strong definitions are what the guest calls).
+extern "C" void __imp__rex_sub_823EDCD8(PPCContext& ctx, uint8_t* base);
+extern "C" void rex_sub_823EDCD8(PPCContext& ctx, uint8_t* base) {
+    static uint32_t n = 0;
+    if (++n <= 3 || n % 50 == 0)
+        SDL_Log("[MCLA_VoiceTrace] create_context #%u arg=0x%08llX", n,
+                static_cast<unsigned long long>(ctx.r3.u64));
+    __imp__rex_sub_823EDCD8(ctx, base);
+}
+extern "C" void __imp__rex_sub_823EE050(PPCContext& ctx, uint8_t* base);
+extern "C" void rex_sub_823EE050(PPCContext& ctx, uint8_t* base) {
+    static uint32_t n = 0;
+    if (++n <= 3 || n % 50 == 0)
+        SDL_Log("[MCLA_VoiceTrace] xma_kick #%u arg=0x%08llX", n,
+                static_cast<unsigned long long>(ctx.r3.u64));
+    __imp__rex_sub_823EE050(ctx, base);
+}
+extern "C" void __imp__rex_sub_823FB5B8(PPCContext& ctx, uint8_t* base);
+extern "C" void rex_sub_823FB5B8(PPCContext& ctx, uint8_t* base) {
+    static uint32_t n = 0;
+    if (++n <= 3 || n % 50 == 0)
+        SDL_Log("[MCLA_VoiceTrace] voice_enable #%u obj=0x%08llX", n,
+                static_cast<unsigned long long>(ctx.r3.u64));
+    __imp__rex_sub_823FB5B8(ctx, base);
+}
 
 // Forward declarations for internal helper functions
 uint8_t* GuestBase() {
@@ -1239,15 +1316,19 @@ void MCLAAmbientDensityTuning(rex::ppc::Register& r3) {
 }
 
 void MCLA_Audio_BankError(rex::ppc::Register& r4, rex::ppc::Register& r31) {
-    (void)r4;
-    (void)r31;
-    LogStubOnce("MCLA_Audio_BankError");
+    static uint32_t n = 0;
+    if (++n <= 5 || n % 50 == 0)
+        SDL_Log("[MCLA_AudioTrace] BankError #%u r4=0x%08llX slot=0x%08llX", n,
+                static_cast<unsigned long long>(r4.u64),
+                static_cast<unsigned long long>(r31.u64));
 }
 
 void MCLA_Audio_BankOpened(rex::ppc::Register& r3, rex::ppc::Register& r31) {
-    (void)r3;
-    (void)r31;
-    LogStubOnce("MCLA_Audio_BankOpened");
+    static uint32_t n = 0;
+    if (++n <= 5 || n % 50 == 0)
+        SDL_Log("[MCLA_AudioTrace] BankOpened #%u r3=0x%08llX slot=0x%08llX", n,
+                static_cast<unsigned long long>(r3.u64),
+                static_cast<unsigned long long>(r31.u64));
 }
 
 void MCLABikeGyroPositionFilter(rex::ppc::Register& f13) {
@@ -1700,8 +1781,24 @@ void Patch_AmbientCascadeDraw(rex::ppc::Register& r3, rex::ppc::Register& r4, re
 }
 
 void Patch_ArchiveList(rex::ppc::Register& r1) {
-    (void)r1;
-    LogStubOnce("Patch_ArchiveList");
+    // Same technique as LARecomp's AppendModArchiveTo: append in place to the
+    // bounded guest stack buffer, with a NUL terminator.
+    char list[520] = {0};
+    const uint32_t addr = static_cast<uint32_t>(r1.u64) + 0xD0;
+    if (!mcla::GetMembase()) return;
+    for (size_t i = 0; i < sizeof(list) - 1; ++i) {
+        const char c = static_cast<char>(mcla::ReadGuestU8(addr + i));
+        if (!c) break;
+        list[i] = c;
+    }
+    static const char kMod[] = ";game:/xarchive_mods.rpf";
+    size_t len = 0;
+    while (len < 512 && list[len]) ++len;
+    if (len + sizeof(kMod) > 512) return;
+    for (size_t i = 0; i < sizeof(kMod); ++i) {
+        mcla::WriteGuestU8(addr + len + i, static_cast<uint8_t>(kMod[i]));
+    }
+    SDL_Log("[MCLA_AudioTrace] archive_list=\"%s\"", list);
 }
 
 void Patch_BypassVehicleDLC(rex::ppc::Register& r30) {

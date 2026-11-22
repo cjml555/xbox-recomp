@@ -3,6 +3,7 @@ package com.mcla.recomp;
 import android.content.Context;
 import android.view.SurfaceHolder;
 
+import org.libsdl.app.SDLActivity;
 import org.libsdl.app.SDLSurface;
 
 /**
@@ -21,6 +22,12 @@ import org.libsdl.app.SDLSurface;
 public class MCLASurface extends SDLSurface {
     private final OnSurfaceLifecycleListener mListener;
 
+    // Set by MainActivity right after nativeInit(): the SDL statics must not be
+    // called before SDL is initialized by the native thread.
+    private static volatile boolean sNativeReady = false;
+
+    public static void setNativeReady(boolean ready) { sNativeReady = ready; }
+
     public interface OnSurfaceLifecycleListener {
         void onSurfaceCreated(int width, int height);
         void onSurfaceChanged(int width, int height);
@@ -34,10 +41,25 @@ public class MCLASurface extends SDLSurface {
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        // Do NOT call super — it would invoke SDLActivity.onNativeSurfaceCreated()
-        // which requires mSingleton != null (and crashes otherwise).
+        // Do NOT call super.surfaceCreated/surfaceChanged: those touch SDLActivity
+        // state that requires mSingleton. The static native is safe and is the
+        // only way SDL learns about a NEW ANativeWindow after a destroy+create;
+        // the Vulkan presenter rebuilds its swapchain from it on the next paint.
+        if (sNativeReady) {
+            SDLActivity.onNativeSurfaceCreated();
+        }
         if (mListener != null) {
             mListener.onSurfaceCreated(getWidth(), getHeight());
+        }
+    }
+
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
+        // Drop SDL's stale native window so the presenter disconnects instead of
+        // presenting to a dead surface. super.surfaceDestroyed() would also drive
+        // SDLActivity.handleNativeState() and can pause our custom game thread.
+        if (sNativeReady) {
+            SDLActivity.onNativeSurfaceDestroyed();
         }
     }
 

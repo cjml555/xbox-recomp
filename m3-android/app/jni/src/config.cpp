@@ -163,7 +163,7 @@ bool Config::Load(const std::string& path) {
         dev_mode = j.value("dev_mode", dev_mode);
         frame_step_cap_ms = j.value("frame_step_cap_ms", frame_step_cap_ms);
         if (!std::isfinite(frame_step_cap_ms) || frame_step_cap_ms < 50.0f ||
-            frame_step_cap_ms > 500.0f) {
+            frame_step_cap_ms > 1000.0f) {
             frame_step_cap_ms = 125.0f;
         }
         show_fps = j.value("show_fps", show_fps);

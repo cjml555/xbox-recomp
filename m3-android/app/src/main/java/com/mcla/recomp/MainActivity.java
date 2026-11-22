@@ -146,6 +146,7 @@ public class MainActivity extends SDLActivity
         String filesDir = getFilesDir().getAbsolutePath();
         String cacheDir = getCacheDir().getAbsolutePath();
         nativeInit(assetsDir, filesDir, cacheDir);
+        MCLASurface.setNativeReady(true);
 
         // Pass native library directory for GPU plugin loading
         String nativeLibDir = getApplicationInfo().nativeLibraryDir;
@@ -259,6 +260,7 @@ public class MainActivity extends SDLActivity
     protected void onDestroy() {
         super.onDestroy();
         Log.i(TAG, "onDestroy");
+        MCLASurface.setNativeReady(false);
         nativeShutdown();
     }
 

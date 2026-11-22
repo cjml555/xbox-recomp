@@ -7,6 +7,7 @@
 #include <SDL3/SDL.h>
 #include <array>
 #include <chrono>
+#include <deque>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -152,9 +153,10 @@ private:
     bool m_virtual_gamepad_visible = false;
 
     std::array<VirtualTouch, 8> m_touches;
-    // A tap is shorter than the guest's input polling interval (~300 ms under
-    // load). Keep latching buttons down for at least this long after lift.
-    static constexpr int64_t kMinPressMs = 300;
+    // The guest input thread is starved under load: on the Motorola it polls
+    // XamInputGetState only every ~3 s. Keep latched buttons down long enough
+    // for at least one full poll to observe the edge.
+    static constexpr int64_t kMinPressMs = 4000;
     static constexpr size_t kZoneCount = static_cast<size_t>(VirtualZone::DPadRight) + 1;
     std::array<int64_t, kZoneCount> m_release_at_ms{};
     static int64_t NowMs();
@@ -166,6 +168,14 @@ private:
     void UpdateVirtualState();
     void FlushExpiredReleases();
     void ClearState();
+
+ public:
+    struct PendingKey { uint16_t vk; bool down; };
+    void QueueKey(VirtualZone zone, bool down);
+    bool PopKey(PendingKey& out);
+
+ private:
+    std::deque<PendingKey> m_pending_keys;
 };
 
 GamepadManager& GetGamepadManager();
@@ -271,7 +281,18 @@ class MclaInputDriver final : public rex::input::InputDriver {
   rex::X_RESULT GetDeviceKeystroke(rex::input::DeviceId id, uint32_t flags,
                                           rex::input::X_INPUT_KEYSTROKE* out_keystroke) override {
     if (id != kMclaDevice) return X_ERROR_DEVICE_NOT_CONNECTED;
-    return X_ERROR_EMPTY;
+    if (!out_keystroke) return X_ERROR_BAD_ARGUMENTS;
+    GamepadManager::PendingKey key;
+    if (!GetGamepadManager().PopKey(key)) return X_ERROR_EMPTY;
+    out_keystroke->virtual_key = key.vk;
+    out_keystroke->unicode = 0;
+    out_keystroke->flags = key.down ? rex::input::X_INPUT_KEYSTROKE_KEYDOWN
+                                    : rex::input::X_INPUT_KEYSTROKE_KEYUP;
+    out_keystroke->user_index = 0;
+    out_keystroke->hid_code = 0;
+    __android_log_print(ANDROID_LOG_INFO, "MCLA_GPAD",
+                        "KEYSTROKE vk=0x%04X down=%d", key.vk, key.down ? 1 : 0);
+    return X_ERROR_SUCCESS;
   }
 
  private:
