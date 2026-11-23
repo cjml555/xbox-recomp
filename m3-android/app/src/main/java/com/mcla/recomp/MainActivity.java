@@ -186,12 +186,22 @@ public class MainActivity extends SDLActivity
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
+        int actionIndex = event.getActionIndex();
         int pointerCount = event.getPointerCount();
         for (int i = 0; i < pointerCount; i++) {
             int pointerId = event.getPointerId(i);
-            float x = event.getX(i);
-            float y = event.getY(i);
-            nativeOnTouchEvent(action, x, y, pointerId);
+            // ACTION_POINTER_DOWN/UP describe only pointer `actionIndex`; the
+            // other pointers of that same event merely moved. Sending the
+            // masked action to all of them produced ghost presses/lifts.
+            int pointerAction = action;
+            if (action == MotionEvent.ACTION_POINTER_DOWN) {
+                pointerAction = (i == actionIndex) ? MotionEvent.ACTION_DOWN
+                                                   : MotionEvent.ACTION_MOVE;
+            } else if (action == MotionEvent.ACTION_POINTER_UP) {
+                pointerAction = (i == actionIndex) ? MotionEvent.ACTION_UP
+                                                   : MotionEvent.ACTION_MOVE;
+            }
+            nativeOnTouchEvent(pointerAction, event.getX(i), event.getY(i), pointerId);
         }
         // Consume the event — do NOT call super.dispatchTouchEvent() as that
         // routes it through SDLSurface's onTouch (and SDL's onNativeTouch with

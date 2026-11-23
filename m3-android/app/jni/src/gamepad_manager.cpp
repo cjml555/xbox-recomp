@@ -187,6 +187,19 @@ void GamepadManager::FeedTouch(int pointer_id, bool down, float x, float y) {
     }
 }
 
+void GamepadManager::MoveTouch(int pointer_id, float x, float y) {
+    // ACTION_MOVE is not a lift. Only refresh the pointer position: the
+    // stick/D-pad state is recomputed from it by UpdateVirtualState(), and the
+    // latch button this pointer owns stays down until it actually lifts.
+    for (auto& t : m_touches) {
+        if (t.pointer_id == pointer_id && t.down) {
+            t.x = x;
+            t.y = y;
+            return;
+        }
+    }
+}
+
 VirtualPadLayout VirtualPadLayout::Make(int width, int height) {
     const VirtualPadConfig defaults;
     return Make(width, height, defaults);

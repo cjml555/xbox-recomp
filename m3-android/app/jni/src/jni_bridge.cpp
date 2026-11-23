@@ -660,18 +660,22 @@ Java_com_mcla_recomp_MainActivity_nativeOnSurfaceChanged(JNIEnv* env, jobject ob
 JNIEXPORT void JNICALL
 Java_com_mcla_recomp_MainActivity_nativeOnTouchEvent(JNIEnv* env, jobject obj,
                                                         jint action, jfloat x, jfloat y, jint pointerId) {
-    bool is_down = (action == 0); // AMOTION_EVENT_ACTION_DOWN = 0
-    static int touch_log = 0;
-    if (touch_log < 12) { ++touch_log;
-        LOGI("nativeOnTouchEvent action=%d x=%.1f y=%.1f pid=%d", (int)action, (double)x, (double)y, (int)pointerId);
-    }
-
+    // ACTION_MOVE (2) is not a lift. Before this, every move was passed to
+    // FeedTouch(false), which queued a KEYUP, reset the slot and scheduled a
+    // 300 ms release: holding a button was reported as released on the first
+    // jitter, so only repeated taps were ever detected.
+    const bool is_down = (action == 0);  // ACTION_DOWN / ACTION_POINTER_DOWN
+    const bool is_up = (action == 1 || action == 3 || action == 6);
     // A rightward swipe from the left edge opens the in-game pad settings.
     // Those touches (and every touch while the drawer is open) belong to the
     // ImGui panel, not to the virtual controller.
     const bool swipe_consumed = mcla::GetMenus().HandleEdgeSwipe((int)action, x, y);
     if (!swipe_consumed && !mcla::GetMenus().IsPadSettingsOpen()) {
-        mcla::GetGamepadManager().FeedTouch((int)pointerId, is_down, x, y);
+        if (is_down || is_up) {
+            mcla::GetGamepadManager().FeedTouch((int)pointerId, is_down, x, y);
+        } else if (action == 2) {  // ACTION_MOVE
+            mcla::GetGamepadManager().MoveTouch((int)pointerId, x, y);
+        }
     }
 
     // Map surface-pixel coords into the Vulkan render-target's local space

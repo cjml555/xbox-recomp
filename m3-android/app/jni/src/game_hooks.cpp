@@ -8,13 +8,18 @@
 #include "guest_memory.h"
 #include <SDL3/SDL.h>
 #include <rex/runtime.h>
+#include <rex/memory.h>
+#include <rex/system/xtypes.h>
 #include <rex/chrono/clock.h>
+#include <rex/system/thread_state.h>
 #include <atomic>
 #include <mutex>
 #include <chrono>
+#include <utility>
 #include <sys/resource.h>
 #include <thread>
 #include <unordered_set>
+#include <vector>
 #include <string>
 
 // Logs each stub hook name at most once. Stub hooks are called from the guest
@@ -29,6 +34,71 @@ static void LogStubOnce(const char* name) {
     }
 }
 
+// ── Voice-object flag watch ────────────────────────────────────────────────
+// ctx_setup (0x823EDF00) returns 1 immediately when bit 0x20000 of voice+4 is
+// already set. Watch writes to that word and report the guest LR so we can
+// find the caller that sets it before create_context runs.
+struct WatchedVoiceWord {
+    uint32_t guest_address = 0;
+    uint32_t physical_address = 0;
+    uint32_t last_value = 0;
+};
+struct VoiceFlagWatchState {
+    rex::memory::Memory* memory = nullptr;
+    uint32_t physical_page = 0;
+    std::atomic<uint32_t> hits{0};
+    std::vector<WatchedVoiceWord> words;
+};
+static VoiceFlagWatchState g_voice_watch;
+
+static std::pair<uint32_t, uint32_t> VoiceFlagWriteWatch(void* context_ptr,
+                                                         uint32_t physical_start,
+                                                         uint32_t length, bool exact_range) {
+    (void)exact_range;
+    auto* watch = static_cast<VoiceFlagWatchState*>(context_ptr);
+    if (!watch) return {0, UINT32_MAX};
+    auto* thread = rex::runtime::ThreadState::Get();
+    const uint32_t lr = thread ? static_cast<uint32_t>(thread->context()->lr) : 0;
+    for (auto& word : watch->words) {
+        if ((word.physical_address & ~0xFFFu) != physical_start) continue;
+        const uint32_t value = mcla::ReadGuestBE32(word.guest_address);
+        if (value == word.last_value) continue;
+        word.last_value = value;
+        if (watch->hits++ < 80) {
+            SDL_Log("[MCLA_VoiceWatch] HIT guest=0x%08X val=0x%08X lr=0x%08X len=%u",
+                    word.guest_address, value, lr, length);
+        }
+    }
+    return {0, UINT32_MAX};
+}
+
+static void ArmVoiceFlagWatch(uint32_t guest_address, const char* from) {
+    if (g_voice_watch.hits.load(std::memory_order_relaxed) >= 80) return;
+    auto* runtime = rex::Runtime::instance();
+    if (!runtime || !mcla::IsGuestPtr(guest_address)) return;
+    auto* memory = runtime->memory();
+    if (!memory) return;
+    if (!g_voice_watch.memory) {
+        g_voice_watch.memory = memory;
+        memory->RegisterPhysicalMemoryInvalidationCallback(VoiceFlagWriteWatch, &g_voice_watch);
+        SDL_Log("[MCLA_VoiceWatch] armed by %s", from);
+    }
+    for (const auto& word : g_voice_watch.words) {
+        if (word.guest_address == guest_address) return;
+    }
+    const uint32_t physical = memory->GetPhysicalAddress(guest_address);
+    if (physical == UINT32_MAX) return;
+    g_voice_watch.words.push_back(
+        {guest_address, physical, mcla::ReadGuestBE32(guest_address)});
+    SDL_Log("[MCLA_VoiceWatch] add guest=0x%08X phys=0x%08X value=0x%08X", guest_address,
+            physical, g_voice_watch.words.back().last_value);
+    const uint32_t page = physical & ~0xFFFu;
+    if (page != g_voice_watch.physical_page) {
+        g_voice_watch.physical_page = page;
+        memory->EnablePhysicalMemoryAccessCallbacks(physical, 4, true, false);
+    }
+}
+
 namespace mcla {
 
 // Log only the indirect call target from the XAudio callback body. No guest
@@ -36,16 +106,36 @@ namespace mcla {
 extern "C" void __imp__rex_sub_823ECA40(PPCContext& ctx, uint8_t* base);
 extern "C" void rex_sub_823ECA40(PPCContext& ctx, uint8_t* base) {
     static uint32_t n = 0;
-    if (++n <= 4) SDL_Log("[MCLA_AudioTrace] ec40 call #%u", n);
+    const bool log = (++n <= 4 || (n % 1000) == 0);
+    if (log) SDL_Log("[MCLA_AudioTrace] ec40 call #%u", n);
     __imp__rex_sub_823ECA40(ctx, base);
-    if (n <= 4) SDL_Log("[MCLA_AudioTrace] ec40 indirect=0x%08X",
-                        static_cast<uint32_t>(ctx.last_indirect_target));
+    if (log) SDL_Log("[MCLA_AudioTrace] ec40 indirect=0x%08X",
+                     static_cast<uint32_t>(ctx.last_indirect_target));
 }
 
 extern "C" void MclaTraceIndirect(uint32_t target) {
     static uint32_t n = 0;
-    if (++n <= 200 || (n % 10000) == 0)
-        SDL_Log("[MCLA_AudioTrace] indirect target=0x%08X #%u", target, n);
+    static std::unordered_set<uint32_t> seen;
+    const uint32_t call_no = ++n;
+    const char* name = "";
+    switch (target) {
+        case 0x823EC8C8: name = "mixer_thread"; break;
+        case 0x823ECA40: name = "audio_callback"; break;
+        case 0x823F56D0: name = "render_client_callback"; break;
+        case 0x823EDCD8: name = "create_context"; break;
+        case 0x823EDF00: name = "ctx_setup"; break;
+        case 0x823EE050: name = "xma_kick"; break;
+        case 0x823FB5B8: name = "voice_enable"; break;
+        case 0x823F6EF8: /* vdisp is far too hot; its own wrapper logs it */ break;
+        default: break;
+    }
+    // The render thread makes hundreds of millions of indirect calls per run;
+    // log only the targets we actually care about plus a few unknowns for
+    // discovery, otherwise logcat wraps before the XMA events are readable.
+    const bool first_few = seen.emplace(target).second && seen.size() <= 12;
+    if (name[0] || first_few) {
+        SDL_Log("[MCLA_AudioTrace] indirect #%u target=0x%08X %s", call_no, target, name);
+    }
 }
 
 // Log which vtable slot the audio dispatcher selects. The guest calls this
@@ -54,16 +144,28 @@ extern "C" void MclaTraceIndirect(uint32_t target) {
 extern "C" void __imp__Func_823F6EF8(PPCContext& ctx, uint8_t* base);
 extern "C" void Func_823F6EF8(PPCContext& ctx, uint8_t* base) {
     static uint32_t n = 0;
-    if (++n <= 20 || (n % 100) == 0) {
+    if (++n <= 8 || (n % 10000) == 0) {
         const uint32_t obj = static_cast<uint32_t>(ctx.r3.u64);
         const uint32_t idx = ctx.r4.u32 & 0xFF;
-        uint32_t vtable = 0, fn = 0;
-        if (mcla::IsGuestPtr(obj)) {
+        const uint32_t count = mcla::IsGuestPtr(obj) ? mcla::ReadGuestU8(obj + 60) : 0;
+        uint32_t vtable = 0, iface = 0, iface_vtable = 0, target = 0;
+        if (idx < count) {
+            // This mirrors Func_823F6EF8 exactly: obj+36 is the COM vtable,
+            // slot idx holds an interface pointer, and slot 2 of that
+            // interface's vtable (+0x10) is the actual function called via bctr.
             vtable = mcla::ReadGuestBE32(obj + 36);
-            if (mcla::IsGuestPtr(vtable)) fn = mcla::ReadGuestBE32(vtable + idx * 8);
+            if (mcla::IsGuestPtr(vtable)) {
+                iface = mcla::ReadGuestBE32(vtable + idx * 8);
+                if (mcla::IsGuestPtr(iface)) {
+                    iface_vtable = mcla::ReadGuestBE32(iface + 0);
+                    if (mcla::IsGuestPtr(iface_vtable)) {
+                        target = mcla::ReadGuestBE32(iface_vtable + 16);
+                    }
+                }
+            }
         }
-        SDL_Log("[MCLA_AudioTrace] vdisp #%u obj=0x%08X idx=%u vt=0x%08X fn=0x%08X", n, obj,
-                idx, vtable, fn);
+        SDL_Log("[MCLA_AudioTrace] vdisp #%u obj=0x%08X idx=%u count=%u vt=0x%08X iface=0x%08X ifvt=0x%08X target=0x%08X",
+                n, obj, idx, count, vtable, iface, iface_vtable, target);
     }
     __imp__Func_823F6EF8(ctx, base);
 }
@@ -73,22 +175,70 @@ extern "C" void Func_823F6EF8(PPCContext& ctx, uint8_t* base) {
 extern "C" void __imp__rex_sub_823EC8C8(PPCContext& ctx, uint8_t* base);
 extern "C" void rex_sub_823EC8C8(PPCContext& ctx, uint8_t* base) {
     static uint32_t n = 0;
-    if (++n <= 3) {
+    if (++n <= 3 || (n % 1000) == 0) {
         const int rc = setpriority(PRIO_PROCESS, 0, -5);
         SDL_Log("[MCLA_AudioTrace] mixer thread entered #%u setpriority rc=%d", n, rc);
     }
     __imp__rex_sub_823EC8C8(ctx, base);
 }
 
+// The XMA context helper called by voice_enable (0x823FB5B8 -> 0x823EDF00).
+// If voice_enable is reached but no kick follows, this shows whether the helper
+// found a usable context or bailed out before the APU write.
+extern "C" void __imp__rex_sub_823EDF00(PPCContext& ctx, uint8_t* base);
+extern "C" void rex_sub_823EDF00(PPCContext& ctx, uint8_t* base) {
+    static uint32_t n = 0;
+    const bool log = (++n <= 8 || (n % 100) == 0);
+    const uint32_t obj = static_cast<uint32_t>(ctx.r3.u32);
+    if (log) {
+        const uint32_t flags = mcla::IsGuestPtr(obj) ? mcla::ReadGuestBE32(obj + 4) : 0;
+        const uint32_t arr = mcla::IsGuestPtr(obj) ? mcla::ReadGuestBE32(obj + 8) : 0;
+        const uint32_t idx0 = mcla::IsGuestPtr(arr) ? mcla::ReadGuestBE16(arr + 80) : 0;
+        SDL_Log("[MCLA_VoiceTrace] ctx_setup #%u obj=0x%08X flags=0x%08X arr=0x%08X idx0=%u",
+                n, obj, flags, arr, idx0);
+    }
+    __imp__rex_sub_823EDF00(ctx, base);
+    if (log) SDL_Log("[MCLA_VoiceTrace] ctx_setup #%u ret=0x%08X", n,
+                     static_cast<uint32_t>(ctx.r3.u32));
+}
+
+// XAudio voice activation thunks. These are stored as callbacks in the guest
+// audio engine; if none of them fire, the engine never starts a voice even
+// though it allocates and clears XMA contexts.
+#define MCLA_VOICE_WRAPPER(fn, label)                                                 \
+    extern "C" void __imp__##fn(PPCContext& ctx, uint8_t* base);                     \
+    extern "C" void fn(PPCContext& ctx, uint8_t* base) {                             \
+        static uint32_t n = 0;                                                       \
+        const uint32_t obj = static_cast<uint32_t>(ctx.r3.u32);                      \
+        const bool log = (++n <= 5 || (n % 500) == 0);                               \
+        if (log) SDL_Log("[MCLA_VoiceTrace] %s #%u r3=0x%08X", label, n,              \
+                         static_cast<uint32_t>(ctx.r3.u32));                         \
+        __imp__##fn(ctx, base);                                                      \
+    }
+
+MCLA_VOICE_WRAPPER(rex_sub_823FB4B8, "activate_a")
+MCLA_VOICE_WRAPPER(rex_sub_823FC4D8, "alloc_voice")
+MCLA_VOICE_WRAPPER(rex_sub_823FC9F8, "activate_b")
+MCLA_VOICE_WRAPPER(sub_823FB820, "thunk_20")
+MCLA_VOICE_WRAPPER(sub_823FB840, "thunk_40")
+
+#undef MCLA_VOICE_WRAPPER
+
 // Log-only wrappers around the game's XMA voice path (generated functions are
 // weak, so these strong definitions are what the guest calls).
 extern "C" void __imp__rex_sub_823EDCD8(PPCContext& ctx, uint8_t* base);
 extern "C" void rex_sub_823EDCD8(PPCContext& ctx, uint8_t* base) {
     static uint32_t n = 0;
-    if (++n <= 3 || n % 50 == 0)
-        SDL_Log("[MCLA_VoiceTrace] create_context #%u arg=0x%08llX", n,
-                static_cast<unsigned long long>(ctx.r3.u64));
+    const bool log = (++n <= 3 || n % 50 == 0);
+    const uint32_t obj = static_cast<uint32_t>(ctx.r3.u32);
+    ArmVoiceFlagWatch(obj + 4, "create_context");
+    const uint32_t flags_before = mcla::IsGuestPtr(obj) ? mcla::ReadGuestBE32(obj + 4) : 0;
+    if (log)
+        SDL_Log("[MCLA_VoiceTrace] create_context #%u arg=0x%08X flags=0x%08X", n, obj,
+                flags_before);
     __imp__rex_sub_823EDCD8(ctx, base);
+    const uint32_t flags_after = mcla::IsGuestPtr(obj) ? mcla::ReadGuestBE32(obj + 4) : 0;
+    if (log) SDL_Log("[MCLA_VoiceTrace] create_context #%u flags_after=0x%08X", n, flags_after);
 }
 extern "C" void __imp__rex_sub_823EE050(PPCContext& ctx, uint8_t* base);
 extern "C" void rex_sub_823EE050(PPCContext& ctx, uint8_t* base) {
@@ -1308,6 +1458,19 @@ void Hook_WheelHudGear(rex::ppc::Register& r4, rex::ppc::Register& r5) {
 void Hook_WheelSlip(rex::ppc::Register& r31) {
     (void)r31;
     LogStubOnce("Hook_WheelSlip");
+}
+
+// Exact mid-store hook injected into larecomp_recomp.101.cpp at 0x823EE02C
+// (`stw r10,4(r9)` inside rex_sub_823EDF00). Reports the real target address
+// and value before the store, plus the guest LR of the caller.
+extern "C" void MCLA_LogVoiceFlagStore(rex::ppc::Register& r9, rex::ppc::Register& r10) {
+    static uint32_t n = 0;
+    auto* thread = rex::runtime::ThreadState::Get();
+    const uint32_t lr = thread ? static_cast<uint32_t>(thread->context()->lr) : 0;
+    if (++n <= 40 || (n % 200) == 0) {
+        SDL_Log("[MCLA_StoreHook] #%u addr=0x%08X val=0x%08X lr=0x%08X", n,
+                static_cast<uint32_t>(r9.u32 + 4), static_cast<uint32_t>(r10.u32), lr);
+    }
 }
 
 void MCLAAmbientDensityTuning(rex::ppc::Register& r3) {

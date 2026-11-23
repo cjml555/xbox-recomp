@@ -134,6 +134,9 @@ public:
 
     // Touch input from JNI (surface-pixel coords).
     void FeedTouch(int pointer_id, bool down, float x, float y);
+    // Pointer moved while held: update its position (and stick zone) without
+    // releasing latch buttons. ACTION_MOVE is not a lift.
+    void MoveTouch(int pointer_id, float x, float y);
 
     // Control geometry (surface pixels) — used by menu to draw + map touches.
     void SetDisplaySize(int w, int h);

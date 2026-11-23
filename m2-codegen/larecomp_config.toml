@@ -24952,6 +24952,13 @@ address = 0x821315E4
 name = "MCLA_SkipIntroRenderPassMask"
 registers = ["r4"]
 
+# Exact store that sets bit 0x20000 on voice+4 (rex_sub_823EDF00).
+# Logs the target address/value and guest LR before the store.
+[[midasm_hook]]
+name = "MCLA_LogVoiceFlagStore"
+address = 0x823EE02C
+registers = ["r9", "r10"]
+
 # Display gamma (hooks/display_gamma.cpp). sub_82426B68 builds the table that the device's gamma
 # ramp is converted through; 0x82426B98 follows its `bl VdGetCurrentDisplayGamma`, which wrote the
 # display type at r1+84 (1 sRGB, 2 TV). With display_gamma = pc the hook writes 1 where the call
